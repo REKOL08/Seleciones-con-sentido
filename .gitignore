@@ -1,0 +1,22 @@
+# Secretos / configuración local
+.env
+.env.*
+*.secret
+secrets/
+config/local/
+credentials/
+token*
+
+# Archivos de producción
+data/production/
+exports/
+*.xlsx
+*.xls
+*.ods
+
+# Apps Script / sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
