@@ -414,7 +414,25 @@ function refrescarCacheCatalogo() {
   const cache = CacheService.getScriptCache();
   const libros = leerCatalogoDesdeHoja_();
   guardarCatalogoEnCache_(cache, libros);
-  Logger.log('Caché del catálogo actualizada: ' + libros.length + ' títulos.');
+
+  // guardarCatalogoEnCache_() se traga los errores a propósito, para que la app
+  // siga funcionando (más lenta) si el catálogo no cabe en CacheService. Eso
+  // significa que haber llamado a esa función NO es prueba de que se guardara:
+  // hay que leer de vuelta y comprobarlo, o este mensaje mentiría.
+  const verificado = leerCatalogoDesdeCache_(cache);
+  const enCache = !!(verificado && verificado.length === libros.length);
+
+  if (enCache) {
+    Logger.log('Caché del catálogo actualizada: ' + libros.length + ' títulos.');
+  } else {
+    Logger.log(
+      'AVISO: el catálogo tiene ' + libros.length + ' títulos y NO se pudo guardar en caché.\n' +
+      'La app sigue funcionando, pero cada búsqueda va a leer la hoja completa y el\n' +
+      'buscador se va a sentir lento. Ejecuta medirRendimiento() para ver el detalle.'
+    );
+  }
+
+  return { ok: enCache, titulos: libros.length, enCache: enCache };
 }
 
 // Diagnóstico de proveedores. Bogotá opera con 16 a 20 proveedores; esta
@@ -2637,7 +2655,11 @@ function consolidarCatalogo(opciones) {
   // El catálogo cambió: la caché vieja ya no sirve.
   let avisoCache = '';
   try {
-    refrescarCacheCatalogo();
+    const estadoCache = refrescarCacheCatalogo();
+    if (!estadoCache.enCache) {
+      avisoCache = "El catálogo se consolidó bien, pero NO cabe en la caché. Cada búsqueda " +
+        "leerá la hoja completa y el buscador se sentirá lento. Ejecuta medirRendimiento().";
+    }
   } catch (err) {
     avisoCache = "El catálogo se consolidó bien, pero no se pudo refrescar la caché: " +
       err.message + ". Ejecuta refrescarCacheCatalogo() aparte.";
