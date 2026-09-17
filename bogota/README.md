@@ -112,18 +112,40 @@ están en **`docs/bogota-catalogo.md`**.
 | `CORREO_BIBLIOTECA` | Correo que recibe las notificaciones |
 | `ID_LOGO` | ID en Drive del archivo de logo |
 | `URL_APP_WEB` | Respaldo de la URL de la app, para cuando `ScriptApp.getService().getUrl()` no está disponible (por ejemplo, al ejecutar `obtenerUrlsSistema()` desde el editor) |
+| `CORREOS_ADMIN` | Correos autorizados para las funciones de mantenimiento, separados por comas. Sin ella, cualquier cuenta identificada puede ejecutarlas |
 
 Ninguno de estos valores debe escribirse dentro de los archivos versionados.
 
-## Sobre la clave del panel
+## Control de acceso
 
-`CLAVE_BIBLIOTECA` **no es autenticación real**: cualquiera que conozca la URL
-exacta y la clave puede entrar, y la validación ocurre del lado del cliente
-antes de pedir los datos. Sirve para que un usuario normal no llegue al panel
-por error, no para proteger información sensible frente a alguien que la busque
-deliberadamente. Si se necesita control de acceso real, hay que resolverlo con
-los permisos de publicación de la Web App o con una capa de autenticación
-propia.
+`google.script.run` puede llamar a **cualquier** función del servidor que no
+termine en guion bajo, no solo a las que usa la página. Cualquiera que abra la
+app web puede abrir la consola del navegador y llamar a lo que quiera. Por eso:
+
+- **Cada función del panel verifica la clave en el servidor**, en su primera
+  línea. Comprobarla solo en el cliente no protegería nada.
+- **Las funciones de mantenimiento** (consolidar, refrescar la caché, medir,
+  las de prueba) exigen que quien las ejecute esté identificado y, si está
+  configurada `CORREOS_ADMIN`, que su correo esté en esa lista.
+- El motor del cargue masivo es privado (`procesarCargueMasivo_`), no
+  alcanzable desde el cliente.
+
+### Lo que esto NO es
+
+`CLAVE_BIBLIOTECA` sigue siendo **una clave compartida, no autenticación
+real**: la misma para todo el personal, viaja en cada llamada y no deja rastro
+de quién hizo qué. Sirve para que nadie llegue a los datos por accidente o por
+curiosear. Para control de acceso de verdad (saber quién hizo qué, revocar a
+una persona) hay que usar los permisos de publicación de la Web App o una capa
+de autenticación propia.
+
+### Limitación conocida
+
+`obtenerHistorialPedidos(email)` es pública a propósito: así una persona
+consulta sus propias solicitudes. Eso significa que **quien conozca el correo
+de alguien puede ver qué libros solicitó**. Es inherente al diseño de esa
+función; si no resulta aceptable, hay que cambiarla (por ejemplo, pidiendo
+también el documento).
 
 ## Qué falta
 

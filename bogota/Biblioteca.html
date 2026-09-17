@@ -393,6 +393,25 @@
       requestAnimationFrame(paso);
     }
 
+    // El servidor verifica la clave en CADA llamada. Si la rechaza (porque
+    // alguien la cambió en las Script Properties mientras el panel estaba
+    // abierto), se vuelve a la pantalla de acceso en vez de dejar al personal
+    // ante un error que no explica nada.
+    function esErrorDeAcceso(err){
+      const mensaje = (err && err.message) ? err.message : String(err || '');
+      return mensaje.indexOf('Acceso no autorizado') !== -1;
+    }
+
+    function volverAPantallaDeClave(mensaje){
+      claveValida = null;
+      document.getElementById('panel').style.display = 'none';
+      document.getElementById('cajaClave').style.display = 'block';
+      document.getElementById('campoClave').value = '';
+      document.getElementById('errorClave').textContent =
+        mensaje || 'La clave dejó de ser válida. Ingrésala de nuevo.';
+      document.getElementById('campoClave').focus();
+    }
+
     let toastTemporizador = null;
     function mostrarToast(mensaje, tipo){
       const toast = document.getElementById('toast');
@@ -441,10 +460,11 @@
       google.script.run
         .withSuccessHandler(pintarPanel)
         .withFailureHandler(function(err){
+          if (esErrorDeAcceso(err)) { volverAPantallaDeClave(); return; }
           document.getElementById('resultados').innerHTML =
             '<p class="estado">' + escapar(err.message || err) + '</p>';
         })
-        .obtenerPanelBibliotecaData();
+        .obtenerPanelBibliotecaData(claveValida);
     }
 
     function pintarPanel(lista){
@@ -524,7 +544,7 @@
           boton.disabled = false;
           boton.textContent = 'Marcar como completado';
         })
-        .actualizarEstadoPedido(idSolicitud, 'Completado');
+        .actualizarEstadoPedido(claveValida, idSolicitud, 'Completado');
     }
 
     // Convierte el base64 que devuelve el servidor en una descarga del
@@ -565,7 +585,7 @@
           btn.disabled = false;
           btn.textContent = '📊 Exportar a Excel';
         })
-        .exportarResumenPedidosExcel();
+        .exportarResumenPedidosExcel(claveValida);
     }
 
     // ── PLAN B: plantilla ───────────────────────────────────────────────
@@ -593,8 +613,8 @@
           btn.textContent = textoOriginal;
         });
 
-      if (esExcel) ejecutor.generarPlantillaCargueExcel();
-      else ejecutor.generarPlantillaCargueCSV();
+      if (esExcel) ejecutor.generarPlantillaCargueExcel(claveValida);
+      else ejecutor.generarPlantillaCargueCSV(claveValida);
     }
 
     // ── PLAN B: cargue masivo ───────────────────────────────────────────
@@ -669,7 +689,7 @@
           btn.textContent = '🔍 Revisar archivo';
           document.getElementById('btnConfirmar').disabled = true;
         })
-        .validarCargueMasivo(textoArchivoCargue, nombreArchivoCargue);
+        .validarCargueMasivo(claveValida, textoArchivoCargue, nombreArchivoCargue);
     }
 
     function confirmarArchivo(){
@@ -718,7 +738,7 @@
           btn.disabled = false;
           btn.textContent = '✔ Confirmar cargue';
         })
-        .confirmarCargueMasivo(textoArchivoCargue, nombreArchivoCargue, omitir);
+        .confirmarCargueMasivo(claveValida, textoArchivoCargue, nombreArchivoCargue, omitir);
     }
 
     function pintarReporte(reporte){
@@ -781,10 +801,11 @@
       google.script.run
         .withSuccessHandler(pintarDeseos)
         .withFailureHandler(function(err){
+          if (esErrorDeAcceso(err)) { volverAPantallaDeClave(); return; }
           document.getElementById('resultadosDeseos').innerHTML =
             '<p class="estado">' + escapar(err.message || err) + '</p>';
         })
-        .obtenerListaDeseos();
+        .obtenerListaDeseos(claveValida);
     }
 
     function pintarDeseos(lista){
@@ -840,7 +861,7 @@
           boton.disabled = false;
           boton.textContent = 'Marcar como conseguido';
         })
-        .actualizarEstadoDeseo(idDeseo, 'Conseguido');
+        .actualizarEstadoDeseo(claveValida, idDeseo, 'Conseguido');
     }
 
   </script>

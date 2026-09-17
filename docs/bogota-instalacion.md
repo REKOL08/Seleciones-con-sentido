@@ -88,6 +88,7 @@ Guarda (💾 o Ctrl+S).
 |---|---|---|
 | `CLAVE_BIBLIOTECA` | La clave que usará el personal para entrar al panel | Sí |
 | `CORREO_BIBLIOTECA` | Correo que recibirá las notificaciones | Sí |
+| `CORREOS_ADMIN` | Correos autorizados para las funciones de mantenimiento, separados por comas | Recomendada |
 | `ID_LOGO` | ID del archivo del logo en Drive | No |
 | `URL_APP_WEB` | Se llena después del paso 6 | No |
 
@@ -155,7 +156,33 @@ quien abra el enlace desde el navegador interno de otra app puede encontrarse
 con un error de Google. Eso es justamente lo que atiende la página puente del
 QR — leer `docs/bogota-qr-safari.md`.
 
-Copia la URL que entrega y pégala en la Script Property `URL_APP_WEB`.
+### La URL correcta es la que termina en `/exec`
+
+El editor maneja **dos** URLs y se parecen mucho:
+
+| URL | Qué es | Quién puede abrirla |
+|---|---|---|
+| `.../macros/s/<ID>/**dev**` | de pruebas | **solo quien tenga acceso de edición al script** |
+| `.../macros/s/<ID>/**exec**` | la publicada | según el ajuste "Quién tiene acceso" |
+
+Si alguien abre la de `/dev` sin acceso de edición, Google le muestra
+**"Necesitas acceso · Solicita acceso o cambia a una cuenta con acceso"**. Ese
+error casi siempre significa que se está usando `/dev` en vez de `/exec`, no
+que falte un permiso.
+
+**En el código QR va la de `/exec`**, con `?qr=1` al final.
+
+Copia la URL de `/exec` y pégala en la Script Property `URL_APP_WEB`.
+
+### Cada cambio en el código necesita una implementación nueva
+
+La URL de `/exec` sirve la **versión implementada**, no la que está en el
+editor. Después de pegar código nuevo hay que ir a
+**Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva versión →
+Implementar**. Así se conserva la misma URL (y el mismo QR).
+
+Si en vez de eso se crea una implementación nueva desde cero, la URL cambia y
+el QR impreso deja de servir.
 
 ## Paso 7 · Anotar los enlaces
 

@@ -190,10 +190,92 @@ function obtenerLogoDataUriPorId_(id) {
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// CONTROL DE ACCESO
+// ────────────────────────────────────────────────────────────────────────
+// Lo que hay que tener claro antes de tocar esto:
+//
+// google.script.run puede llamar a CUALQUIER función del servidor que no
+// termine en guion bajo. No solo a las que usa la página: cualquiera que
+// abra la app web puede abrir la consola del navegador y llamar a lo que
+// quiera. Por eso comprobar la clave solo en el cliente (pintar el panel o
+// no) NO protege nada: los datos se piden igual sin pasar por esa pantalla.
+//
+// De ahí que cada función que devuelve datos personales o que modifica algo
+// verifique la clave EN EL SERVIDOR, en su primera línea.
+//
+// Esto sigue sin ser autenticación real: es una clave compartida, la misma
+// para todo el personal, que viaja en cada llamada. Sirve para que nadie
+// llegue a los datos por curiosear o por accidente. Si hiciera falta control
+// de acceso de verdad (saber quién hizo qué, revocar a una persona), hay que
+// resolverlo con los permisos de publicación de la app o con una capa de
+// autenticación propia.
+// ────────────────────────────────────────────────────────────────────────
+
 // Verifica la clave de acceso al Panel de Biblioteca. Se llama desde
-// Biblioteca.html antes de mostrar cualquier dato de solicitudes.
+// Biblioteca.html para decidir si se muestra el panel. Devolver false aquí
+// no protege los datos por sí solo: de eso se encarga exigirClave_().
 function validarClaveBiblioteca(clave) {
   return (clave || '').toString() === CLAVE_BIBLIOTECA;
+}
+
+// Corta la ejecución si la clave no es la correcta. La llaman todas las
+// funciones del Panel de Biblioteca.
+function exigirClave_(clave) {
+  if ((clave || '').toString() !== CLAVE_BIBLIOTECA) {
+    throw new Error(
+      "Acceso no autorizado. Vuelve a entrar al Panel de Biblioteca e " +
+      "ingresa la clave de nuevo."
+    );
+  }
+}
+
+// Correos autorizados para las funciones de mantenimiento, separados por
+// comas en la Script Property CORREOS_ADMIN. No se escriben en el código:
+// son datos de la instalación.
+function correosAdministradores_() {
+  const valor = PropertiesService.getScriptProperties().getProperty('CORREOS_ADMIN') || '';
+  return valor.split(',')
+    .map(function (c) { return c.trim().toLowerCase(); })
+    .filter(Boolean);
+}
+
+// Corta la ejecución si quien llama no es una persona autorizada.
+//
+// Protege las funciones de mantenimiento (consolidar el catálogo, refrescar
+// la caché, medir, las de prueba…). Se ejecutan desde el editor de Apps
+// Script, donde no se les pueden pasar argumentos, así que la comprobación
+// no puede ser por clave: se hace por el correo de quien ejecuta.
+//
+// Session.getActiveUser().getEmail() devuelve el correo de quien ejecuta
+// desde el editor, y cadena vacía para un visitante anónimo de la app web.
+// Esa es la distinción en la que se apoya esto. NO PUDE VERIFICARLO en el
+// entorno real de Apps Script, y el propio Google documenta que ese valor
+// puede venir vacío en varias situaciones. Por eso, además, se exige que el
+// correo esté en la lista de CORREOS_ADMIN: sin lista configurada, cualquier
+// persona identificada del mismo dominio pasaría el filtro.
+function exigirAdministrador_() {
+  let correo = '';
+  try {
+    correo = (Session.getActiveUser().getEmail() || '').toLowerCase();
+  } catch (err) {
+    correo = '';
+  }
+
+  if (!correo) {
+    throw new Error(
+      "Esta función es de mantenimiento y solo puede ejecutarse desde el editor " +
+      "de Apps Script por una persona autorizada."
+    );
+  }
+
+  const autorizados = correosAdministradores_();
+  if (autorizados.length && autorizados.indexOf(correo) === -1) {
+    throw new Error(
+      "La cuenta " + correo + " no está autorizada para las funciones de " +
+      "mantenimiento. Agrégala a la Script Property CORREOS_ADMIN."
+    );
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -411,6 +493,7 @@ function leerCatalogoDesdeCache_(cache) {
 // el editor de Apps Script para que la app muestre los cambios de
 // inmediato, en vez de esperar hasta 30 minutos a que la caché expire.
 function refrescarCacheCatalogo() {
+  exigirAdministrador_();
   const cache = CacheService.getScriptCache();
   const libros = leerCatalogoDesdeHoja_();
   guardarCatalogoEnCache_(cache, libros);
@@ -440,6 +523,7 @@ function refrescarCacheCatalogo() {
 // cuántos títulos aporta cada uno, y avisa si el total quedó fuera de ese
 // rango. No bloquea nada: solo informa.
 function verificarProveedores() {
+  exigirAdministrador_();
   const libros = leerCatalogo_();
   const conteo = {};
   libros.forEach(function (l) {
@@ -1236,7 +1320,9 @@ function enviarCorreoDeseo_(datos) {
 
 // Devuelve todas las solicitudes especiales registradas (uso interno del
 // Panel de Biblioteca), la más reciente primero.
-function obtenerListaDeseos() {
+function obtenerListaDeseos(clave) {
+  exigirClave_(clave);
+
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOMBRE_HOJA_DESEOS);
   if (!hoja || hoja.getLastRow() < 2) return [];
 
@@ -1269,7 +1355,9 @@ function obtenerListaDeseos() {
 }
 
 // Cambia el estado (Pendiente/Conseguido) de una solicitud especial.
-function actualizarEstadoDeseo(idDeseo, nuevoEstado) {
+function actualizarEstadoDeseo(clave, idDeseo, nuevoEstado) {
+  exigirClave_(clave);
+
   const estadosValidos = ["Pendiente", "Conseguido"];
   if (!idDeseo) {
     throw new Error("Falta el ID de la solicitud especial.");
@@ -1376,7 +1464,9 @@ function obtenerHistorialPedidos(email) {
 // ────────────────────────────────────────────────────────────────────────
 
 // Devuelve todas las solicitudes registradas, sin filtrar por usuario.
-function obtenerPanelBibliotecaData() {
+function obtenerPanelBibliotecaData(clave) {
+  exigirClave_(clave);
+
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOMBRE_HOJA_PEDIDOS);
   if (!hoja || hoja.getLastRow() < 2) return [];
 
@@ -1385,7 +1475,9 @@ function obtenerPanelBibliotecaData() {
 }
 
 // Cambia el estado (Pendiente/Completado) de todas las filas de una solicitud.
-function actualizarEstadoPedido(idSolicitud, nuevoEstado) {
+function actualizarEstadoPedido(clave, idSolicitud, nuevoEstado) {
+  exigirClave_(clave);
+
   const estadosValidos = ["Pendiente", "Completado"];
   if (!idSolicitud) {
     throw new Error("Falta el ID de la solicitud.");
@@ -1578,7 +1670,9 @@ function escribirTablaEnHoja_(hoja, encabezados, filas) {
 // Genera el archivo .xlsx completo y lo devuelve como base64 para que el
 // navegador lo descargue. Se arma en una hoja de cálculo temporal (creada
 // solo para exportarla) que se borra de Drive apenas se obtienen los bytes.
-function exportarResumenPedidosExcel() {
+function exportarResumenPedidosExcel(clave) {
+  exigirClave_(clave);
+
   const datos = generarResumenExportable_();
   const marcaTiempo = Utilities.formatDate(new Date(), "GMT-5", "yyyyMMdd_HHmmss");
 
@@ -1877,7 +1971,9 @@ function escaparCampoCsv_(valor, delimitador) {
 
 // Plantilla en CSV. Se entrega con BOM UTF-8 al inicio para que Excel
 // reconozca la codificación y no dañe las tildes al abrirla.
-function generarPlantillaCargueCSV() {
+function generarPlantillaCargueCSV(clave) {
+  exigirClave_(clave);
+
   const delimitador = ',';
   const lineas = [
     PLANTILLA_CARGUE_ENCABEZADOS.map(function (c) { return escaparCampoCsv_(c, delimitador); }).join(delimitador),
@@ -1897,7 +1993,9 @@ function generarPlantillaCargueCSV() {
 // fila de ejemplo, las instrucciones y las listas de valores válidos.
 // Se arma en una hoja temporal que se borra apenas se obtienen los bytes,
 // igual que el export de resumen.
-function generarPlantillaCargueExcel() {
+function generarPlantillaCargueExcel(clave) {
+  exigirClave_(clave);
+
   const marcaTiempo = Utilities.formatDate(new Date(), "GMT-5", "yyyyMMdd_HHmmss");
   const ssTemp = SpreadsheetApp.create('Plantilla contingencia ' + CIUDAD + ' - ' + marcaTiempo);
 
@@ -2023,7 +2121,7 @@ function leerIdsExistentesPedidos_() {
 //                        que tengan error. Por defecto false: si hay UNA
 //                        fila mala, no se escribe nada (todo o nada).
 //   nombreArchivo        (texto) solo informativo, para el reporte y el correo.
-function procesarCargueMasivo(textoArchivo, opciones) {
+function procesarCargueMasivo_(textoArchivo, opciones) {
   opciones = opciones || {};
   const soloValidar = opciones.soloValidar !== false; // por seguridad, validar es el default
   const omitirFilasConError = opciones.omitirFilasConError === true;
@@ -2323,12 +2421,14 @@ function procesarCargueMasivo(textoArchivo, opciones) {
 
 // Atajos que usa Biblioteca.html, para que el HTML no tenga que acordarse
 // de pasar las opciones correctas.
-function validarCargueMasivo(textoArchivo, nombreArchivo) {
-  return procesarCargueMasivo(textoArchivo, { soloValidar: true, nombreArchivo: nombreArchivo });
+function validarCargueMasivo(clave, textoArchivo, nombreArchivo) {
+  exigirClave_(clave);
+  return procesarCargueMasivo_(textoArchivo, { soloValidar: true, nombreArchivo: nombreArchivo });
 }
 
-function confirmarCargueMasivo(textoArchivo, nombreArchivo, omitirFilasConError) {
-  return procesarCargueMasivo(textoArchivo, {
+function confirmarCargueMasivo(clave, textoArchivo, nombreArchivo, omitirFilasConError) {
+  exigirClave_(clave);
+  return procesarCargueMasivo_(textoArchivo, {
     soloValidar: false,
     omitirFilasConError: omitirFilasConError === true,
     nombreArchivo: nombreArchivo
@@ -2505,6 +2605,7 @@ function analizarConsolidacion_() {
 
 // Revisión que NO escribe nada. Ejecutar siempre antes de consolidar.
 function revisarConsolidacion() {
+  exigirAdministrador_();
   const analisis = analizarConsolidacion_();
   const lineas = [];
 
@@ -2590,6 +2691,7 @@ function revisarConsolidacion() {
 // Reescribe "IndiceGlobal" con la unión de todas las pestañas de proveedor.
 // Las pestañas de origen no se modifican ni se borran.
 function consolidarCatalogo(opciones) {
+  exigirAdministrador_();
   opciones = opciones || {};
   const forzar = opciones.forzar === true;
 
@@ -2716,6 +2818,7 @@ function consolidarCatalogoForzado() {
 // ────────────────────────────────────────────────────────────────────────
 
 function configurarSistema() {
+  exigirAdministrador_();
   const libro = SpreadsheetApp.getActiveSpreadsheet();
   const reporte = { ok: true, problemas: [], avisos: [], acciones: [] };
   const lineas = [];
@@ -2908,6 +3011,7 @@ function configurarSistema() {
   const requeridas = [
     { clave: 'CLAVE_BIBLIOTECA', obligatoria: true, nota: 'clave del Panel de Biblioteca' },
     { clave: 'CORREO_BIBLIOTECA', obligatoria: true, nota: 'correo que recibe las notificaciones' },
+    { clave: 'CORREOS_ADMIN', obligatoria: false, nota: 'correos autorizados para las funciones de mantenimiento, separados por comas' },
     { clave: 'ID_LOGO', obligatoria: false, nota: 'ID en Drive del logo (opcional)' },
     { clave: 'URL_APP_WEB', obligatoria: false, nota: 'respaldo de la URL publicada (opcional)' }
   ];
@@ -2916,12 +3020,23 @@ function configurarSistema() {
     const valor = propiedades.getProperty(p.clave);
     if (valor) {
       lineas.push("   ✓ " + p.clave + " configurada");
+      if (p.clave === 'CLAVE_BIBLIOTECA' && valor === 'CAMBIAR_EN_SCRIPT_PROPERTIES') {
+        reporte.ok = false;
+        reporte.problemas.push("CLAVE_BIBLIOTECA sigue con el valor de ejemplo. Cámbiala.");
+        lineas.push("     ✗ …pero sigue con el valor de ejemplo. Cámbiala antes de publicar.");
+      }
     } else if (p.obligatoria) {
       reporte.ok = false;
       reporte.problemas.push("Falta configurar " + p.clave + " (" + p.nota + ").");
       lineas.push("   ✗ " + p.clave + " SIN configurar — " + p.nota);
     } else {
       lineas.push("   · " + p.clave + " sin configurar — " + p.nota);
+      if (p.clave === 'CORREOS_ADMIN') {
+        const aviso = "Sin CORREOS_ADMIN, las funciones de mantenimiento admiten a cualquier " +
+          "cuenta identificada. Con la app publicada para todo el mundo, conviene configurarla.";
+        reporte.avisos.push(aviso);
+        lineas.push("     ⚠ " + aviso);
+      }
     }
   });
 
@@ -2974,6 +3089,7 @@ function configurarSistema() {
 // ────────────────────────────────────────────────────────────────────────
 
 function obtenerUrlsSistema() {
+  exigirAdministrador_();
   // La URL se lee de la implementación activa o de la Script Property
   // URL_APP_WEB. Nunca se escribe una URL real dentro del repositorio.
   const base = obtenerUrlAppWeb_();
@@ -3030,6 +3146,7 @@ function obtenerUrlsSistema() {
 // ────────────────────────────────────────────────────────────────────────
 
 function medirRendimiento() {
+  exigirAdministrador_();
   const cache = CacheService.getScriptCache();
   const lineas = [];
   const resultado = { ok: true, avisos: [] };
@@ -3162,6 +3279,7 @@ function medirRendimiento() {
 // ────────────────────────────────────────────────────────────────────────
 
 function probarRegistrarPedido() {
+  exigirAdministrador_();
   const datosDePrueba = {
     sede: SEDES_VALIDAS[0],
     nombre: "Ana Pérez",
@@ -3191,6 +3309,7 @@ function probarRegistrarPedido() {
 // Usa datos ficticios e incluye a propósito una fila con errores, para ver
 // cómo se reportan. Ejecutar desde el editor y mirar el registro.
 function probarCargueMasivo() {
+  exigirAdministrador_();
   const sede = SEDES_VALIDAS[0];
   const csv = [
     PLANTILLA_CARGUE_ENCABEZADOS.join(','),
@@ -3207,7 +3326,7 @@ function probarCargueMasivo() {
       '', 'Tecnología', '', 'Proveedor Demo', '60000', '1', 'G2'].join(',')
   ].join('\n');
 
-  const reporte = procesarCargueMasivo(csv, { soloValidar: true, nombreArchivo: 'prueba.csv' });
+  const reporte = procesarCargueMasivo_(csv, { soloValidar: true, nombreArchivo: 'prueba.csv' });
   Logger.log('Filas leídas: ' + reporte.filasLeidas);
   Logger.log('Filas válidas: ' + reporte.filasValidas);
   Logger.log('Filas con error: ' + reporte.filasConError);
