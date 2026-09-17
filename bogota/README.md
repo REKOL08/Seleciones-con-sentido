@@ -83,6 +83,7 @@ Resumen:
 6. Ejecutar `obtenerUrlsSistema()` y anotar la URL marcada como
    "URL PARA IMPRIMIR EN EL QR".
 7. Probar con datos ficticios: `probarRegistrarPedido()` y `probarCargueMasivo()`.
+8. Ejecutar `medirRendimiento()` y confirmar que la caché del catálogo funciona.
 
 ### Los catálogos se consolidan solos
 

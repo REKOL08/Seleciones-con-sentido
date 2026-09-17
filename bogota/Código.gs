@@ -2988,6 +2988,153 @@ function obtenerUrlsSistema() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// MEDICIÓN DE RENDIMIENTO
+// ────────────────────────────────────────────────────────────────────────
+// Ejecutar medirRendimiento() desde el editor y leer el "Registro de
+// ejecución". Responde a la única pregunta que importa antes de una jornada:
+//
+//   ¿la caché del catálogo está funcionando?
+//
+// Por qué importa: el catálogo se guarda comprimido y repartido en trozos en
+// CacheService, que limita cada valor a 100 KB. Si el catálogo crece tanto que
+// no cabe, guardarCatalogoEnCache_() falla en SILENCIO (a propósito: es
+// preferible ir lento a romperse) y a partir de ahí CADA búsqueda vuelve a
+// leer la hoja entera. El buscador se pone lentísimo y nada avisa de ello.
+// Esta función lo comprueba explícitamente.
+//
+// OJO: para medir en frío hay que borrar la caché, así que la primera persona
+// que busque justo después se va a encontrar una respuesta lenta. Ejecutarla
+// fuera de una jornada, no en pleno uso.
+// ────────────────────────────────────────────────────────────────────────
+
+function medirRendimiento() {
+  const cache = CacheService.getScriptCache();
+  const lineas = [];
+  const resultado = { ok: true, avisos: [] };
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" Medición de rendimiento · " + CIUDAD);
+  lineas.push("══════════════════════════════════════════════════");
+
+  // ── 1. Lectura en frío: leer la hoja y parsearla ────────────────────
+  cache.remove(CATALOGO_CACHE_PREFIJO + 'meta'); // invalida la caché actual
+
+  let t0 = new Date().getTime();
+  const libros = leerCatalogoDesdeHoja_();
+  const msLecturaHoja = new Date().getTime() - t0;
+
+  resultado.titulos = libros.length;
+  resultado.msLecturaHoja = msLecturaHoja;
+
+  lineas.push("");
+  lineas.push("1) LECTURA EN FRÍO (lo que pasa si no hay caché)");
+  lineas.push("   Títulos en el catálogo: " + libros.length);
+  lineas.push("   Leer la hoja y parsearla: " + msLecturaHoja + " ms");
+
+  // ── 2. ¿La caché guarda de verdad? ──────────────────────────────────
+  t0 = new Date().getTime();
+  guardarCatalogoEnCache_(cache, libros);
+  const msGuardar = new Date().getTime() - t0;
+
+  t0 = new Date().getTime();
+  const recuperado = leerCatalogoDesdeCache_(cache);
+  const msRecuperar = new Date().getTime() - t0;
+
+  resultado.msGuardarCache = msGuardar;
+  resultado.msLeerCache = msRecuperar;
+  resultado.cacheFunciona = !!(recuperado && recuperado.length === libros.length);
+
+  lineas.push("");
+  lineas.push("2) CACHÉ  ← lo más importante de esta medición");
+  lineas.push("   Guardar en caché: " + msGuardar + " ms");
+
+  if (resultado.cacheFunciona) {
+    lineas.push("   ✓ LA CACHÉ FUNCIONA: se recuperaron " + recuperado.length +
+      " títulos en " + msRecuperar + " ms.");
+    lineas.push("     Las búsquedas no volverán a leer la hoja durante " +
+      Math.round(CATALOGO_CACHE_TTL / 60) + " minutos.");
+  } else {
+    resultado.ok = false;
+    const aviso = "LA CACHÉ NO ESTÁ GUARDANDO EL CATÁLOGO. Cada búsqueda va a leer la " +
+      "hoja completa (" + msLecturaHoja + " ms o más, cada vez y por cada persona).";
+    resultado.avisos.push(aviso);
+    lineas.push("   ✗ " + aviso);
+    lineas.push("     Causa más probable: el catálogo ya no cabe en CacheService.");
+    lineas.push("     Qué hacer, en este orden:");
+    lineas.push("       a) Quitar del catálogo columnas que no se usan en el buscador.");
+    lineas.push("       b) Depurar títulos duplicados o descatalogados.");
+    lineas.push("       c) Si aun así no cabe, hay que partir el catálogo o cambiar");
+    lineas.push("          de estrategia de almacenamiento: avísale a quien mantiene");
+    lineas.push("          el código, no es algo que se arregle desde la hoja.");
+  }
+
+  // ── 3. Búsquedas con la caché ya tibia ──────────────────────────────
+  // Se mide lo que realmente hace una carga de página: getFacetsData() para
+  // los filtros y buscarLibros() para los resultados.
+  t0 = new Date().getTime();
+  getFacetsData();
+  const msFacetas = new Date().getTime() - t0;
+
+  const consultas = ['psicologia', 'enfermeria', 'derecho', 'educacion', 'historia'];
+  const tiempos = [];
+  consultas.forEach(function (q) {
+    const inicio = new Date().getTime();
+    buscarLibros({ query: q, page: 1 });
+    tiempos.push(new Date().getTime() - inicio);
+  });
+  const promedio = tiempos.reduce(function (s, x) { return s + x; }, 0) / tiempos.length;
+
+  resultado.msFacetas = msFacetas;
+  resultado.msBusquedas = tiempos;
+  resultado.msBusquedaPromedio = Math.round(promedio);
+
+  lineas.push("");
+  lineas.push("3) CON LA CACHÉ YA CALIENTE");
+  lineas.push("   Cargar los filtros (getFacetsData): " + msFacetas + " ms");
+  lineas.push("   Búsquedas: " + tiempos.join(" ms, ") + " ms");
+  lineas.push("   Promedio por búsqueda: " + Math.round(promedio) + " ms");
+
+  // ── 4. Veredicto ────────────────────────────────────────────────────
+  // Lo que siente la persona es la suma de cargar los filtros y la primera
+  // búsqueda; de ahí en adelante, solo la búsqueda.
+  const msPrimeraCarga = msFacetas + tiempos[0];
+  resultado.msPrimeraCarga = msPrimeraCarga;
+
+  lineas.push("");
+  lineas.push("4) LO QUE VA A SENTIR LA PERSONA");
+  lineas.push("   Abrir el buscador (filtros + primera búsqueda): ~" + msPrimeraCarga + " ms");
+  lineas.push("   Cada búsqueda siguiente: ~" + Math.round(promedio) + " ms");
+  lineas.push("");
+
+  if (!resultado.cacheFunciona) {
+    lineas.push("   ✗ NO SIRVE ASÍ PARA UNA JORNADA: sin caché, cada persona y cada");
+    lineas.push("     búsqueda pagan la lectura completa de la hoja.");
+  } else if (msPrimeraCarga > 8000) {
+    resultado.ok = false;
+    const aviso = "Abrir el buscador tarda más de 8 segundos. Es demasiado para una jornada con gente esperando.";
+    resultado.avisos.push(aviso);
+    lineas.push("   ✗ " + aviso);
+  } else if (msPrimeraCarga > 4000) {
+    const aviso = "Abrir el buscador tarda entre 4 y 8 segundos: usable, pero se nota.";
+    resultado.avisos.push(aviso);
+    lineas.push("   ⚠ " + aviso);
+  } else {
+    lineas.push("   ✓ Tiempos razonables para uso en jornada.");
+  }
+
+  lineas.push("");
+  lineas.push("   Nota: esto se midió con una sola persona. Con varias a la vez");
+  lineas.push("   los tiempos suben. La caché es compartida entre todas, así que");
+  lineas.push("   mientras funcione, el catálogo se lee una sola vez cada " +
+    Math.round(CATALOGO_CACHE_TTL / 60) + " min.");
+  lineas.push("══════════════════════════════════════════════════");
+
+  Logger.log(lineas.join("\n"));
+  resultado.informe = lineas.join("\n");
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // FUNCIONES DE PRUEBA (datos ficticios)
 // Ejecutar desde el editor de Apps Script. Nunca usar datos reales aquí.
 // ────────────────────────────────────────────────────────────────────────

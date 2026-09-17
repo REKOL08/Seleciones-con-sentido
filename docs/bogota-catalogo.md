@@ -206,6 +206,21 @@ cerca de 1 MB ya comprimido y codificado: unos 12 trozos de caché.
 Después de modificar el catálogo, ejecutar `refrescarCacheCatalogo()` para no
 esperar a que la caché expire sola.
 
+### Comprobar que la caché de verdad funciona
+
+`guardarCatalogoEnCache_()` **falla en silencio a propósito**: si el catálogo no
+cabe, la app sigue funcionando, solo que leyendo la hoja en cada búsqueda. Es la
+decisión correcta (mejor lento que roto), pero significa que el problema no se
+nota hasta que hay gente esperando.
+
+**`medirRendimiento()`** lo comprueba explícitamente: vacía la caché, mide la
+lectura en frío, vuelve a guardar, **verifica que lo guardado se puede
+recuperar entero** y mide las búsquedas ya en caliente.
+
+Ejecutarla antes de cada jornada y cada vez que se agregue un proveedor, que es
+cuando el catálogo crece. Fuera de horas de uso: para medir en frío borra la
+caché.
+
 ## Qué revisar con `configurarSistema()`
 
 Reporta, sin tocar el catálogo:

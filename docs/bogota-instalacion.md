@@ -183,8 +183,45 @@ sistema no lo genera.
 - [ ] Descargar la plantilla de contingencia (plan B) y guardarla.
 - [ ] Escanear el QR desde la cámara del teléfono y desde Instagram
       (ver la lista completa en `docs/bogota-qr-safari.md`).
+- [ ] Ejecutar **`medirRendimiento()`** y confirmar que dice
+      "LA CACHÉ FUNCIONA" (ver abajo).
 - [ ] **Borrar las solicitudes de prueba** de la pestaña `Pedidos` antes de
       empezar la jornada real.
+
+## Medir el rendimiento antes de la jornada
+
+Ejecuta **`medirRendimiento()`** desde el editor y lee el Registro de ejecución.
+
+Lo que hay que mirar es el punto 2 del informe:
+
+```text
+2) CACHÉ  ← lo más importante de esta medición
+   ✓ LA CACHÉ FUNCIONA: se recuperaron 18671 títulos en 380 ms.
+```
+
+**Por qué es lo importante:** el catálogo se guarda comprimido y repartido en
+trozos en `CacheService`, que limita cada valor a 100 KB. Si el catálogo crece
+tanto que no cabe, el sistema **falla en silencio a propósito** (prefiere ir
+lento a romperse) y a partir de ahí *cada* búsqueda de *cada* persona vuelve a
+leer la hoja completa. Nada avisa de ello salvo esta función.
+
+Si dice `✗ LA CACHÉ NO ESTÁ GUARDANDO`, el informe lista qué hacer, en orden:
+quitar columnas que el buscador no usa, depurar títulos, y si aun así no cabe,
+avisar a quien mantiene el código (eso ya no se arregla desde la hoja).
+
+El punto 4 resume lo que siente la persona:
+
+| Abrir el buscador tarda | Veredicto |
+|---|---|
+| menos de 4 s | bien para jornada |
+| entre 4 y 8 s | usable, pero se nota |
+| más de 8 s | demasiado con gente esperando |
+
+**Ejecútala fuera de una jornada**: para medir en frío borra la caché, así que
+la primera búsqueda que ocurra justo después será lenta.
+
+Vuelve a ejecutarla **cada vez que agregues un proveedor**: es el momento en
+que el catálogo crece y en que la caché se puede pasar del límite.
 
 ## Después de actualizar el catálogo
 
@@ -202,6 +239,7 @@ inmediato, ejecutar **`refrescarCacheCatalogo()`** desde el editor.
 | `consolidarCatalogoForzado()` | Igual, aceptando que el catálogo quede más pequeño |
 | `verificarProveedores()` | Lista los proveedores y cuántos títulos aporta cada uno |
 | `refrescarCacheCatalogo()` | Aplica ya los cambios hechos en el catálogo |
+| `medirRendimiento()` | Comprueba si la caché funciona y cuánto tardan las búsquedas |
 | `obtenerUrlsSistema()` | Muestra los enlaces del sistema |
 | `probarRegistrarPedido()` | Registra una solicitud de prueba con datos ficticios |
 | `probarCargueMasivo()` | Prueba el cargue masivo sin escribir nada |
@@ -215,6 +253,7 @@ inmediato, ejecutar **`refrescarCacheCatalogo()`** desde el editor.
 | El filtro de Temática no trae un tema que sí existe | La lista se recorta a las temáticas con 10+ títulos → buscarlo por texto (`docs/bogota-catalogo.md`) |
 | Muchos títulos dicen "Precio por confirmar" | Ese proveedor no envió precios → `configurarSistema()` dice cuál es |
 | El buscador no muestra cambios recientes | La caché de 30 minutos → `refrescarCacheCatalogo()` |
+| El buscador va muy lento | La caché puede no estar guardando → `medirRendimiento()` |
 | No llegan los correos | Falta `CORREO_BIBLIOTECA`, o se agotó la cuota diaria de `MailApp` |
 | El panel dice "Clave incorrecta" | Falta `CLAVE_BIBLIOTECA` en las Script Properties |
 | `consolidarCatalogo()` se niega a escribir | El resultado sería más pequeño que el catálogo actual: falta una pestaña o un encabezado no se reconoció |
