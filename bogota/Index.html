@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <!--
+    BUSCADOR PÚBLICO · Selecciones con Sentido · Bogotá
+
+    Esta vista se apoya únicamente en funciones que YA existen en Código.gs:
+      obtenerOpcionesFormulario()  listas válidas de sede y tipo de usuario
+      getFacetsData()              opciones de los filtros + totales
+      buscarLibros(opts)           búsqueda con filtros y paginación
+      registrarPedido(datos)       registro de la solicitud
+      registrarDeseo(datos)        libro que no está en ningún catálogo
+      obtenerHistorialPedidos(email)  consulta del historial propio
+
+    Cuidado con la palabra "sede", que significa dos cosas distintas:
+      · El FILTRO de sede usa la columna "Sede" del catálogo (facetas.sedes):
+        sirve para acotar títulos.
+      · La sede que se ENVÍA en la solicitud debe ser una de SEDES_VALIDAS
+        (opciones.sedes), que es lo que valida el backend.
+      Pueden no coincidir, por eso son dos listas separadas y no se mezclan.
+  -->
+  <style>
+    :root{
+      --color-institucional: #7fb536;
+      --color-acento: #F59C2F;
+      --color-acento-secundario: #e6007e;
+      --paper: #F2ECDD;
+      --paper-dark: #E7DFC9;
+      --card: #FBF8F2;
+      --linea: #D8CFB4;
+      --texto: #000000;
+      --texto-suave: #606060;
+      --error: #b3261e;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; padding:0; }
+    body{
+      background:var(--paper); color:var(--texto);
+      font-family:'Inter', sans-serif; min-height:100vh;
+    }
+
+    @keyframes entradaSuave{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
+    }
+
+    /* ── Encabezado ── */
+    header{
+      background:var(--color-institucional); color:#fff;
+      padding:24px 32px 22px; position:relative; overflow:hidden;
+    }
+    header::after{
+      content:""; position:absolute; left:0; right:0; bottom:0; height:6px;
+      background:repeating-linear-gradient(90deg, #7fb536 0 60px, #F59C2F 60px 120px);
+      opacity:.85;
+    }
+    .logo-cabecera{
+      max-width:150px; height:auto; display:block; margin-bottom:14px;
+      background:#fff; padding:6px 12px; border-radius:5px;
+      box-shadow:0 8px 18px -10px rgba(0,0,0,.4);
+    }
+    .eyebrow{
+      font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.14em;
+      text-transform:uppercase; color:#E7DFC9; margin:0 0 6px;
+    }
+    h1{
+      font-family:'Fraunces', serif; font-weight:600;
+      font-size:clamp(23px,3.2vw,32px); margin:0; letter-spacing:.01em;
+    }
+    .subtitulo{ margin:7px 0 0; color:#E7DFC9; font-size:13.5px; max-width:660px; line-height:1.55; }
+    .acciones-cabecera{ margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; }
+    .btn-cabecera{
+      font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
+      padding:7px 14px; border-radius:3px; cursor:pointer;
+      background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.45);
+      transition:background .2s ease, transform .2s ease;
+    }
+    .btn-cabecera:hover{ background:rgba(255,255,255,.28); transform:translateY(-2px); }
+
+    main{ max-width:1180px; margin:0 auto; padding:22px 24px 120px; }
+
+    /* ── Buscador y filtros ── */
+    .buscador{
+      background:var(--card); border:1px solid var(--linea); border-radius:4px;
+      padding:16px 18px; margin-bottom:18px;
+      box-shadow:0 10px 24px -20px rgba(0,0,0,.45);
+    }
+    .campo-busqueda{ position:relative; margin-bottom:12px; }
+    .campo-busqueda input{
+      width:100%; padding:13px 40px 13px 14px; font-size:15.5px;
+      border:1px solid var(--linea); border-radius:3px; font-family:'Inter', sans-serif;
+      background:#fff; color:var(--texto);
+    }
+    .campo-busqueda input:focus{ outline:2px solid var(--color-institucional); outline-offset:1px; }
+    .btn-limpiar-texto{
+      position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      background:none; border:none; font-size:19px; line-height:1; cursor:pointer;
+      color:var(--texto-suave); padding:4px 8px;
+    }
+
+    .filtros{ display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+    .filtro label{
+      display:block; font-family:'IBM Plex Mono', monospace; font-size:10px;
+      letter-spacing:.08em; text-transform:uppercase; color:var(--texto-suave); margin-bottom:4px;
+    }
+    .filtro select{
+      width:100%; padding:9px 10px; font-size:13.5px; background:#fff; color:var(--texto);
+      border:1px solid var(--linea); border-radius:3px; font-family:'Inter', sans-serif;
+    }
+    .filtro select:focus{ outline:2px solid var(--color-institucional); outline-offset:1px; }
+
+    .pie-buscador{
+      display:flex; justify-content:space-between; align-items:center; gap:12px;
+      flex-wrap:wrap; margin-top:12px; font-size:12.5px; color:var(--texto-suave);
+    }
+    .conteo-resultados{ font-family:'IBM Plex Mono', monospace; font-size:12px; }
+    .conteo-resultados b{ color:var(--texto); }
+
+    /* ── Botones ── */
+    button.primario{
+      font-family:'Inter', sans-serif; font-weight:600; font-size:14px;
+      padding:11px 20px; border:none; border-radius:3px;
+      background:var(--color-institucional); color:#fff; cursor:pointer;
+      transition:filter .2s ease, transform .2s ease, box-shadow .2s ease;
+    }
+    button.primario:hover:not(:disabled){ filter:brightness(.94); transform:translateY(-2px); box-shadow:0 10px 18px -10px rgba(127,181,54,.6); }
+    button.primario:disabled{ opacity:.55; cursor:default; }
+
+    button.secundario{
+      font-family:'Inter', sans-serif; font-weight:600; font-size:13px;
+      padding:9px 16px; border:1px solid var(--linea); border-radius:3px;
+      background:#fff; color:var(--texto); cursor:pointer;
+      transition:background .2s ease, transform .2s ease;
+    }
+    button.secundario:hover:not(:disabled){ background:var(--paper-dark); transform:translateY(-2px); }
+    button.secundario:disabled{ opacity:.55; cursor:default; transform:none; }
+
+    button.acento{
+      font-family:'Inter', sans-serif; font-weight:600; font-size:13px;
+      padding:10px 16px; border:none; border-radius:3px;
+      background:var(--color-acento); color:#fff; cursor:pointer;
+      transition:filter .2s ease, transform .2s ease;
+    }
+    button.acento:hover{ filter:brightness(.95); transform:translateY(-2px); }
+
+    /* ── Disposición: resultados + solicitud ── */
+    .columnas{ display:grid; grid-template-columns:1fr 330px; gap:20px; align-items:start; }
+
+    /* ── Tarjetas de libro ── */
+    .rejilla{ display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
+    .libro-card{
+      background:var(--card); border:1px solid var(--linea); border-radius:3px;
+      padding:15px 16px; display:flex; flex-direction:column;
+      animation:entradaSuave .35s ease both;
+      transition:transform .2s ease, box-shadow .2s ease;
+    }
+    .libro-card:hover{ transform:translateY(-3px); box-shadow:0 14px 24px -18px rgba(0,0,0,.4); }
+    .libro-card.en-solicitud{ border-left:4px solid var(--color-institucional); }
+    .libro-titulo{ font-family:'Fraunces', serif; font-weight:600; font-size:15.5px; margin:0 0 3px; line-height:1.3; }
+    .libro-autor{ font-size:12.5px; color:var(--texto-suave); font-style:italic; margin:0 0 9px; }
+    .chips{ display:flex; gap:5px; flex-wrap:wrap; margin-bottom:9px; }
+    .chip{
+      font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:.03em;
+      padding:3px 7px; border-radius:2px; background:var(--paper-dark); color:var(--texto-suave);
+    }
+    .chip.proveedor{ background:var(--color-institucional); color:#fff; }
+    .libro-meta{ font-size:11.5px; color:var(--texto-suave); line-height:1.5; margin:0 0 10px; }
+    .libro-observaciones{
+      font-size:11.5px; color:var(--texto); background:var(--paper-dark);
+      border-radius:2px; padding:6px 8px; margin:0 0 10px; line-height:1.45;
+    }
+    .libro-pie{ margin-top:auto; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+    .libro-precio{ font-family:'Fraunces', serif; font-weight:600; font-size:16px; }
+    .btn-agregar{
+      font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
+      padding:7px 13px; border:none; border-radius:3px;
+      background:var(--color-institucional); color:#fff; cursor:pointer;
+      transition:filter .2s ease, transform .2s ease;
+    }
+    .btn-agregar:hover{ filter:brightness(.94); transform:translateY(-1px); }
+    .control-cantidad{ display:flex; align-items:center; gap:7px; }
+    .control-cantidad button{
+      width:27px; height:27px; border:1px solid var(--linea); background:#fff;
+      border-radius:3px; cursor:pointer; font-size:15px; line-height:1; color:var(--texto);
+    }
+    .control-cantidad button:hover{ background:var(--paper-dark); }
+    .control-cantidad span{ font-family:'IBM Plex Mono', monospace; font-size:13px; min-width:20px; text-align:center; }
+
+    /* ── Paginación ── */
+    .paginacion{ display:flex; justify-content:center; align-items:center; gap:14px; margin-top:22px; flex-wrap:wrap; }
+    .paginacion span{ font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--texto-suave); }
+
+    /* ── Panel de la solicitud ── */
+    aside.solicitud{
+      background:var(--card); border:1px solid var(--linea); border-radius:4px;
+      padding:16px 17px; position:sticky; top:16px;
+      box-shadow:0 10px 24px -20px rgba(0,0,0,.45);
+    }
+    aside.solicitud h2{ font-family:'Fraunces', serif; font-size:17px; margin:0 0 3px; }
+    .solicitud-sub{ font-size:11.5px; color:var(--texto-suave); margin:0 0 13px; line-height:1.5; }
+    .lista-solicitud{ list-style:none; margin:0 0 13px; padding:0; max-height:44vh; overflow:auto; }
+    .item-solicitud{
+      border-bottom:1px solid var(--linea); padding:9px 0; font-size:12.5px;
+      display:flex; gap:8px; justify-content:space-between; align-items:flex-start;
+    }
+    .item-solicitud:first-child{ padding-top:0; }
+    .item-solicitud-titulo{ font-weight:600; line-height:1.35; }
+    .item-solicitud-sub{ color:var(--texto-suave); font-size:11.5px; margin-top:3px; }
+    .btn-quitar{
+      background:none; border:none; color:var(--error); cursor:pointer;
+      font-size:16px; line-height:1; padding:0 2px; flex-shrink:0;
+    }
+    .total-solicitud{
+      display:flex; justify-content:space-between; align-items:baseline;
+      border-top:2px solid var(--linea); padding-top:11px; margin-bottom:13px;
+    }
+    .total-solicitud span{ font-size:12.5px; color:var(--texto-suave); }
+    .total-solicitud strong{ font-family:'Fraunces', serif; font-size:19px; }
+    .solicitud-vacia{ font-size:12.5px; color:var(--texto-suave); text-align:center; padding:20px 6px; line-height:1.6; }
+    .nota-precio{ font-size:10.5px; color:var(--texto-suave); line-height:1.5; margin:10px 0 0; }
+
+    /* ── Estados ── */
+    .estado{
+      text-align:center; padding:52px 20px; color:var(--texto-suave);
+      font-family:'Fraunces', serif; font-size:15px; line-height:1.6;
+    }
+    .estado-error{ color:var(--error); }
+    .bloque-sin-resultados{
+      background:var(--card); border:1px dashed var(--linea); border-radius:4px;
+      padding:30px 22px; text-align:center;
+    }
+    .bloque-sin-resultados h3{ font-family:'Fraunces', serif; font-size:17px; margin:0 0 7px; }
+    .bloque-sin-resultados p{ font-size:13px; color:var(--texto-suave); margin:0 0 15px; line-height:1.6; }
+
+    /* ── Barra móvil de la solicitud ── */
+    .barra-movil{
+      display:none; position:fixed; left:0; right:0; bottom:0; z-index:900;
+      background:var(--color-institucional); color:#fff; padding:11px 16px;
+      align-items:center; justify-content:space-between; gap:12px;
+      box-shadow:0 -6px 18px rgba(0,0,0,.22); cursor:pointer;
+      border:none; width:100%; font-family:'Inter', sans-serif; font-size:13.5px;
+    }
+    .barra-movil b{ font-family:'Fraunces', serif; font-size:15px; }
+
+    /* ── Modales ── */
+    .fondo-modal{
+      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:2000;
+      display:flex; align-items:flex-start; justify-content:center;
+      padding:24px 16px; overflow-y:auto;
+    }
+    .fondo-modal[hidden]{ display:none; }
+    .modal{
+      background:var(--paper); border-radius:4px; width:100%; max-width:620px;
+      border:1px solid var(--linea); box-shadow:0 20px 50px -20px rgba(0,0,0,.6);
+      animation:entradaSuave .3s ease both; margin:auto 0;
+    }
+    .modal-cabecera{
+      background:var(--color-institucional); color:#fff; padding:17px 22px;
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+      border-bottom:4px solid var(--color-acento);
+    }
+    .modal-cabecera h2{ font-family:'Fraunces', serif; font-size:18.5px; margin:0; }
+    .modal-cabecera p{ font-size:12px; margin:5px 0 0; color:#E7DFC9; line-height:1.5; }
+    .btn-cerrar{
+      background:none; border:none; color:#fff; font-size:23px; line-height:1;
+      cursor:pointer; padding:0 3px; flex-shrink:0;
+    }
+    .modal-cuerpo{ padding:20px 22px; }
+    .modal-pie{
+      padding:15px 22px; border-top:1px solid var(--linea); background:var(--card);
+      display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;
+    }
+
+    .rejilla-campos{ display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+    .campo{ display:flex; flex-direction:column; }
+    .campo.ancho-completo{ grid-column:1 / -1; }
+    .campo label{ font-size:12.5px; font-weight:600; margin-bottom:5px; }
+    .campo label .req{ color:var(--error); }
+    .campo input, .campo select, .campo textarea{
+      padding:10px 11px; font-size:14px; border:1px solid var(--linea); border-radius:3px;
+      font-family:'Inter', sans-serif; background:#fff; color:var(--texto); width:100%;
+    }
+    .campo textarea{ resize:vertical; min-height:74px; }
+    .campo input:focus, .campo select:focus, .campo textarea:focus{
+      outline:2px solid var(--color-institucional); outline-offset:1px;
+    }
+    .campo input[aria-invalid="true"], .campo select[aria-invalid="true"]{ border-color:var(--error); }
+    .campo .ayuda{ font-size:11px; color:var(--texto-suave); margin-top:4px; line-height:1.45; }
+
+    .resumen-modal{
+      background:var(--card); border:1px solid var(--linea); border-radius:3px;
+      padding:13px 15px; margin-top:17px;
+    }
+    .resumen-modal h3{ font-family:'Fraunces', serif; font-size:14.5px; margin:0 0 9px; }
+    .resumen-modal ul{ margin:0; padding-left:18px; font-size:12.5px; line-height:1.65; }
+    .resumen-modal .total{
+      display:flex; justify-content:space-between; border-top:1px solid var(--linea);
+      margin-top:10px; padding-top:9px; font-size:13px;
+    }
+    .resumen-modal .total strong{ font-family:'Fraunces', serif; font-size:16px; }
+
+    .mensaje-error-modal{
+      background:#FDECEA; border-left:4px solid var(--error); color:var(--error);
+      padding:11px 13px; border-radius:3px; font-size:12.5px; margin-bottom:15px; line-height:1.5;
+    }
+    .mensaje-error-modal[hidden]{ display:none; }
+
+    /* ── Confirmación ── */
+    .confirmacion{ text-align:center; padding:8px 0 4px; }
+    .confirmacion .marca{
+      width:56px; height:56px; border-radius:50%; background:var(--color-institucional);
+      color:#fff; font-size:29px; line-height:56px; margin:0 auto 15px;
+    }
+    .confirmacion h3{ font-family:'Fraunces', serif; font-size:19px; margin:0 0 9px; }
+    .confirmacion p{ font-size:13.5px; color:var(--texto-suave); line-height:1.65; margin:0 0 15px; }
+    .caja-id{
+      background:var(--card); border:1px dashed var(--linea); border-radius:3px;
+      padding:13px; margin-bottom:15px;
+    }
+    .caja-id .etiqueta{
+      font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.09em;
+      text-transform:uppercase; color:var(--texto-suave); display:block; margin-bottom:5px;
+    }
+    .caja-id .valor{ font-family:'IBM Plex Mono', monospace; font-size:15.5px; font-weight:600; word-break:break-all; }
+
+    /* ── Historial ── */
+    .historial-card{
+      background:var(--card); border:1px solid var(--linea); border-radius:3px;
+      border-left:4px solid var(--color-institucional);
+      padding:12px 14px; margin-bottom:11px; font-size:12.5px;
+    }
+    .historial-card.pendiente{ border-left-color:var(--color-acento); }
+    .historial-cabecera{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+    .historial-id{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--texto-suave); }
+    .historial-estado{
+      font-family:'IBM Plex Mono', monospace; font-size:10px; text-transform:uppercase;
+      padding:2px 8px; border-radius:2px; background:var(--paper-dark);
+    }
+    .historial-estado.completado{ background:var(--color-institucional); color:#fff; }
+    .historial-card ul{ margin:6px 0; padding-left:17px; line-height:1.6; }
+
+    /* ── Avisos flotantes ── */
+    .toast{
+      position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px);
+      background:var(--texto); color:#fff; padding:12px 20px; border-radius:4px;
+      font-size:13.5px; max-width:90%; box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:3000;
+      opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
+    }
+    .toast.visible{ opacity:1; transform:translate(-50%,0); }
+    .toast.exito{ background:var(--color-institucional); }
+    .toast.error{ background:var(--error); }
+
+    .solo-lectores{
+      position:absolute; width:1px; height:1px; overflow:hidden;
+      clip:rect(0 0 0 0); white-space:nowrap;
+    }
+
+    /* ── Adaptación a pantallas pequeñas ── */
+    @media (max-width:900px){
+      .columnas{ grid-template-columns:1fr; }
+      aside.solicitud{ position:static; }
+      .barra-movil{ display:flex; }
+      main{ padding-bottom:96px; }
+    }
+    @media (max-width:560px){
+      header{ padding:20px 18px; }
+      main{ padding-left:14px; padding-right:14px; }
+      .filtros{ grid-template-columns:1fr; }
+      .rejilla-campos{ grid-template-columns:1fr; }
+      .modal-pie{ flex-direction:column-reverse; }
+      .modal-pie button{ width:100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <img src="<?!= logoDataUri ?>" alt="" class="logo-cabecera">
+    <p class="eyebrow">Selecciones con Sentido · Bogotá</p>
+    <h1>Solicitud de material bibliográfico</h1>
+    <p class="subtitulo">
+      Busca en el catálogo de los proveedores, arma tu solicitud y envíala a la biblioteca.
+      Si el título que necesitas no aparece, también puedes pedirlo.
+    </p>
+    <div class="acciones-cabecera">
+      <button class="btn-cabecera" type="button" id="btnAbrirHistorial">📋 Consultar mis solicitudes</button>
+      <button class="btn-cabecera" type="button" id="btnAbrirDeseoCabecera">✨ Pedir un libro que no está</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Buscador ── -->
+    <section class="buscador" aria-label="Búsqueda en el catálogo">
+      <div class="campo-busqueda">
+        <label for="campoQuery" class="solo-lectores">Buscar por título, autor, ISBN o tema</label>
+        <input type="search" id="campoQuery" placeholder="Busca por título, autor, ISBN o tema…" autocomplete="off">
+        <button class="btn-limpiar-texto" type="button" id="btnLimpiarTexto" aria-label="Borrar la búsqueda" hidden>×</button>
+      </div>
+
+      <div class="filtros">
+        <div class="filtro">
+          <label for="filtroSede">Sede del catálogo</label>
+          <select id="filtroSede"><option value="">Todas</option></select>
+        </div>
+        <div class="filtro">
+          <label for="filtroProveedor">Proveedor</label>
+          <select id="filtroProveedor"><option value="">Todos</option></select>
+        </div>
+        <div class="filtro">
+          <label for="filtroCategoria">Temática</label>
+          <select id="filtroCategoria"><option value="">Todas</option></select>
+        </div>
+      </div>
+
+      <div class="pie-buscador">
+        <p class="conteo-resultados" id="conteoResultados" role="status" aria-live="polite">Cargando catálogo…</p>
+        <button class="secundario" type="button" id="btnLimpiarFiltros">Limpiar filtros</button>
+      </div>
+    </section>
+
+    <!-- ── Resultados + solicitud ── -->
+    <div class="columnas">
+      <section aria-label="Resultados de la búsqueda">
+        <div id="resultados"><p class="estado">Cargando catálogo…</p></div>
+        <div class="paginacion" id="paginacion" hidden>
+          <button class="secundario" type="button" id="btnAnterior">‹ Anterior</button>
+          <span id="indicadorPagina"></span>
+          <button class="secundario" type="button" id="btnSiguiente">Siguiente ›</button>
+        </div>
+      </section>
+
+      <aside class="solicitud" id="panelSolicitud" aria-label="Mi solicitud">
+        <h2>Mi solicitud</h2>
+        <p class="solicitud-sub">Agrega los títulos que necesitas y envíalos todos juntos en una sola solicitud.</p>
+        <div id="contenidoSolicitud"></div>
+      </aside>
+    </div>
+  </main>
+
+  <button class="barra-movil" type="button" id="barraMovil" hidden>
+    <span id="barraMovilTexto">Mi solicitud</span>
+    <b id="barraMovilTotal">$ 0</b>
+  </button>
+
+  <!-- ── Modal: enviar solicitud ── -->
+  <div class="fondo-modal" id="modalSolicitud" hidden role="dialog" aria-modal="true" aria-labelledby="tituloModalSolicitud">
+    <div class="modal">
+      <div class="modal-cabecera">
+        <div>
+          <h2 id="tituloModalSolicitud">Enviar solicitud</h2>
+          <p>Los datos son para que la biblioteca pueda hacerle seguimiento a tu solicitud.</p>
+        </div>
+        <button class="btn-cerrar" type="button" data-cerrar="modalSolicitud" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-cuerpo">
+        <div class="mensaje-error-modal" id="errorSolicitud" role="alert" hidden></div>
+        <div class="rejilla-campos">
+          <div class="campo ancho-completo">
+            <label for="solSede">Sede <span class="req">*</span></label>
+            <select id="solSede"></select>
+          </div>
+          <div class="campo ancho-completo">
+            <label for="solNombre">Nombre completo <span class="req">*</span></label>
+            <input type="text" id="solNombre" autocomplete="name">
+          </div>
+          <div class="campo">
+            <label for="solDocumento">Número de documento <span class="req">*</span></label>
+            <input type="text" id="solDocumento" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="solTipoUsuario">Tipo de usuario <span class="req">*</span></label>
+            <select id="solTipoUsuario"></select>
+          </div>
+          <div class="campo ancho-completo">
+            <label for="solEmail">Correo electrónico <span class="req">*</span></label>
+            <input type="email" id="solEmail" autocomplete="email">
+            <span class="ayuda">Con este correo podrás consultar después el estado de tus solicitudes.</span>
+          </div>
+          <div class="campo">
+            <label for="solFacultad">Facultad <span class="req">*</span></label>
+            <input type="text" id="solFacultad" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="solPrograma">Programa académico <span class="req">*</span></label>
+            <input type="text" id="solPrograma" autocomplete="off">
+          </div>
+          <div class="campo ancho-completo">
+            <label for="solAsignatura">Asignatura que apoya la solicitud <span class="req">*</span></label>
+            <input type="text" id="solAsignatura" autocomplete="off">
+          </div>
+        </div>
+        <div class="resumen-modal" id="resumenModalSolicitud"></div>
+      </div>
+      <div class="modal-pie">
+        <button class="secundario" type="button" data-cerrar="modalSolicitud">Volver</button>
+        <button class="primario" type="button" id="btnEnviarSolicitud">Enviar solicitud</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: libro fuera de catálogo ── -->
+  <div class="fondo-modal" id="modalDeseo" hidden role="dialog" aria-modal="true" aria-labelledby="tituloModalDeseo">
+    <div class="modal">
+      <div class="modal-cabecera">
+        <div>
+          <h2 id="tituloModalDeseo">Pedir un libro que no está en el catálogo</h2>
+          <p>Cuéntanos qué título necesitas y la biblioteca evaluará conseguirlo.</p>
+        </div>
+        <button class="btn-cerrar" type="button" data-cerrar="modalDeseo" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-cuerpo">
+        <div class="mensaje-error-modal" id="errorDeseo" role="alert" hidden></div>
+        <div class="rejilla-campos">
+          <div class="campo ancho-completo">
+            <label for="desTitulo">Título del libro <span class="req">*</span></label>
+            <input type="text" id="desTitulo" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desAutor">Autor</label>
+            <input type="text" id="desAutor" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desIsbn">ISBN</label>
+            <input type="text" id="desIsbn" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desProveedor">Editorial o proveedor sugerido</label>
+            <input type="text" id="desProveedor" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desCantidad">Ejemplares sugeridos</label>
+            <input type="number" id="desCantidad" min="1" step="1" value="1">
+          </div>
+          <div class="campo ancho-completo">
+            <label for="desComentario">¿Por qué lo necesitas?</label>
+            <textarea id="desComentario" placeholder="Opcional. Ayuda a la biblioteca a priorizar."></textarea>
+          </div>
+
+          <div class="campo ancho-completo">
+            <label for="desSede">Sede <span class="req">*</span></label>
+            <select id="desSede"></select>
+          </div>
+          <div class="campo ancho-completo">
+            <label for="desNombre">Nombre completo <span class="req">*</span></label>
+            <input type="text" id="desNombre" autocomplete="name">
+          </div>
+          <div class="campo">
+            <label for="desDocumento">Número de documento <span class="req">*</span></label>
+            <input type="text" id="desDocumento" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desTipoUsuario">Tipo de usuario <span class="req">*</span></label>
+            <select id="desTipoUsuario"></select>
+          </div>
+          <div class="campo ancho-completo">
+            <label for="desEmail">Correo electrónico <span class="req">*</span></label>
+            <input type="email" id="desEmail" autocomplete="email">
+          </div>
+          <div class="campo">
+            <label for="desFacultad">Facultad <span class="req">*</span></label>
+            <input type="text" id="desFacultad" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="desPrograma">Programa académico <span class="req">*</span></label>
+            <input type="text" id="desPrograma" autocomplete="off">
+          </div>
+          <div class="campo ancho-completo">
+            <label for="desAsignatura">Asignatura</label>
+            <input type="text" id="desAsignatura" autocomplete="off">
+            <span class="ayuda">Opcional en este formulario.</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-pie">
+        <button class="secundario" type="button" data-cerrar="modalDeseo">Volver</button>
+        <button class="primario" type="button" id="btnEnviarDeseo">Enviar solicitud especial</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: historial ── -->
+  <div class="fondo-modal" id="modalHistorial" hidden role="dialog" aria-modal="true" aria-labelledby="tituloModalHistorial">
+    <div class="modal">
+      <div class="modal-cabecera">
+        <div>
+          <h2 id="tituloModalHistorial">Mis solicitudes</h2>
+          <p>Escribe el mismo correo con el que enviaste tus solicitudes.</p>
+        </div>
+        <button class="btn-cerrar" type="button" data-cerrar="modalHistorial" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-cuerpo">
+        <div class="campo">
+          <label for="histEmail">Correo electrónico</label>
+          <input type="email" id="histEmail" autocomplete="email" placeholder="tu.correo@ejemplo.org">
+        </div>
+        <div id="resultadoHistorial" style="margin-top:16px;"></div>
+      </div>
+      <div class="modal-pie">
+        <button class="secundario" type="button" data-cerrar="modalHistorial">Cerrar</button>
+        <button class="primario" type="button" id="btnConsultarHistorial">Consultar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: confirmación ── -->
+  <div class="fondo-modal" id="modalConfirmacion" hidden role="dialog" aria-modal="true" aria-labelledby="tituloModalConfirmacion">
+    <div class="modal" style="max-width:470px;">
+      <div class="modal-cabecera">
+        <h2 id="tituloModalConfirmacion">Solicitud registrada</h2>
+        <button class="btn-cerrar" type="button" data-cerrar="modalConfirmacion" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-cuerpo">
+        <div class="confirmacion" id="contenidoConfirmacion"></div>
+      </div>
+      <div class="modal-pie">
+        <button class="primario" type="button" data-cerrar="modalConfirmacion">Entendido</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    // ────────────────────────────────────────────────────────────────────
+    // ESTADO
+    // ────────────────────────────────────────────────────────────────────
+
+    // opciones = listas que acepta el backend (obtenerOpcionesFormulario).
+    // facetas  = opciones de los filtros, sacadas del catálogo (getFacetsData).
+    // No son lo mismo: ver la nota sobre "sede" al inicio de este archivo.
+    let opciones = null;
+    let facetas = null;
+
+    let carrito = [];              // títulos que la persona va agregando
+    let resultadosActuales = [];   // libros de la página que se está viendo
+    let paginaActual = 1;
+    let totalPaginas = 1;
+    let filtros = { query: '', sede: '', proveedor: '', categoria: '' };
+
+    // Cada búsqueda lleva un número. Como google.script.run no garantiza que
+    // las respuestas lleguen en el mismo orden en que se pidieron, al llegar
+    // una respuesta se descarta si ya se lanzó otra búsqueda más nueva; si no,
+    // una consulta lenta podría sobrescribir resultados más recientes.
+    let tokenBusqueda = 0;
+
+    let temporizadorBusqueda = null;
+    let elementoConFocoPrevio = null;
+
+    const CLAVE_ALMACEN_CARRITO = 'scsBogotaCarritoV1';
+
+    // ────────────────────────────────────────────────────────────────────
+    // UTILIDADES
+    // ────────────────────────────────────────────────────────────────────
+
+    function escapar(texto){
+      const div = document.createElement('div');
+      div.textContent = (texto === null || texto === undefined) ? '' : String(texto);
+      return div.innerHTML;
+    }
+
+    function textoLimpio(valor){
+      return (valor === null || valor === undefined) ? '' : String(valor).trim();
+    }
+
+    function aNumero(valor){
+      const numero = Number(valor);
+      return isNaN(numero) ? 0 : numero;
+    }
+
+    function formatearPrecio(valor){
+      const numero = aNumero(valor);
+      return '$ ' + numero.toLocaleString('es-CO');
+    }
+
+    function formatearFecha(valor){
+      if (!valor) return '—';
+      const fecha = new Date(valor);
+      if (isNaN(fecha.getTime())) return escapar(valor);
+      return fecha.toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    const REGEX_EMAIL_CLIENTE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    let toastTemporizador = null;
+    function mostrarToast(mensaje, tipo){
+      const toast = document.getElementById('toast');
+      toast.textContent = mensaje;
+      toast.className = 'toast visible' + (tipo ? ' ' + tipo : '');
+      clearTimeout(toastTemporizador);
+      toastTemporizador = setTimeout(function(){ toast.classList.remove('visible'); }, 5000);
+    }
+
+    // El carrito se guarda en el navegador para que no se pierda si la página
+    // se recarga o se va la conexión a mitad de la jornada. Solo se guardan
+    // los títulos: los datos personales NUNCA se guardan aquí, porque estos
+    // equipos suelen ser compartidos. Todo va dentro de try/catch porque el
+    // almacenamiento puede estar bloqueado (modo privado, cookies restringidas).
+    function guardarCarrito(){
+      try {
+        window.localStorage.setItem(CLAVE_ALMACEN_CARRITO, JSON.stringify(carrito));
+      } catch (err) { /* sin almacenamiento, el carrito solo vive en memoria */ }
+    }
+
+    function recuperarCarrito(){
+      try {
+        const guardado = window.localStorage.getItem(CLAVE_ALMACEN_CARRITO);
+        if (!guardado) return [];
+        const datos = JSON.parse(guardado);
+        return Array.isArray(datos) ? datos : [];
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function limpiarCarritoGuardado(){
+      try { window.localStorage.removeItem(CLAVE_ALMACEN_CARRITO); } catch (err) { /* no crítico */ }
+    }
+
+    // Misma regla de agrupación que usa deduplicarLibros_() en el backend:
+    // mismo ISBN, o mismo título + autor cuando no hay ISBN.
+    function claveLibro(libro){
+      const isbn = textoLimpio(libro.isbn).toLowerCase();
+      if (isbn) return 'isbn:' + isbn;
+      return 'ta:' + textoLimpio(libro.titulo).toLowerCase() + '|' + textoLimpio(libro.autor).toLowerCase();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // MODALES
+    // ────────────────────────────────────────────────────────────────────
+
+    function abrirModal(id){
+      elementoConFocoPrevio = document.activeElement;
+      const modal = document.getElementById(id);
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+      const primerCampo = modal.querySelector('input:not([type=hidden]), select, textarea');
+      if (primerCampo) primerCampo.focus();
+    }
+
+    function cerrarModal(id){
+      document.getElementById(id).hidden = true;
+      // Solo se libera el scroll si no quedó ningún otro modal abierto.
+      const algunoAbierto = Array.prototype.some.call(
+        document.querySelectorAll('.fondo-modal'), function(m){ return !m.hidden; });
+      if (!algunoAbierto) document.body.style.overflow = '';
+      if (elementoConFocoPrevio && elementoConFocoPrevio.focus) elementoConFocoPrevio.focus();
+    }
+
+    document.querySelectorAll('[data-cerrar]').forEach(function(boton){
+      boton.addEventListener('click', function(){ cerrarModal(boton.getAttribute('data-cerrar')); });
+    });
+
+    // Clic en el fondo oscuro = cerrar. Se compara el destino del clic con el
+    // fondo mismo para no cerrar cuando se hace clic dentro de la tarjeta.
+    document.querySelectorAll('.fondo-modal').forEach(function(fondo){
+      fondo.addEventListener('click', function(evento){
+        if (evento.target === fondo) cerrarModal(fondo.id);
+      });
+    });
+
+    document.addEventListener('keydown', function(evento){
+      if (evento.key !== 'Escape') return;
+      const abiertos = Array.prototype.filter.call(
+        document.querySelectorAll('.fondo-modal'), function(m){ return !m.hidden; });
+      if (abiertos.length) cerrarModal(abiertos[abiertos.length - 1].id);
+    });
+
+    // ────────────────────────────────────────────────────────────────────
+    // CARGA INICIAL
+    // ────────────────────────────────────────────────────────────────────
+
+    function iniciar(){
+      carrito = recuperarCarrito();
+      pintarCarrito();
+
+      google.script.run
+        .withSuccessHandler(function(datos){
+          opciones = datos;
+          llenarSelectoresFormulario();
+        })
+        .withFailureHandler(function(err){
+          // Sin estas listas no se puede enviar nada, así que se avisa claro.
+          mostrarToast('No se pudieron cargar las opciones del formulario: ' + (err.message || err), 'error');
+        })
+        .obtenerOpcionesFormulario();
+
+      google.script.run
+        .withSuccessHandler(function(datos){
+          facetas = datos;
+          llenarFiltros();
+          buscar(1);
+        })
+        .withFailureHandler(function(err){
+          document.getElementById('resultados').innerHTML =
+            '<p class="estado estado-error">No se pudo cargar el catálogo.<br>' + escapar(err.message || err) + '</p>';
+          document.getElementById('conteoResultados').textContent = 'Catálogo no disponible';
+        })
+        .getFacetsData();
+    }
+
+    function llenarFiltros(){
+      const porLlenar = [
+        { id: 'filtroSede', valores: facetas.sedes, etiquetaTodos: 'Todas' },
+        { id: 'filtroCategoria', valores: facetas.categorias, etiquetaTodos: 'Todas' }
+      ];
+
+      porLlenar.forEach(function(config){
+        const select = document.getElementById(config.id);
+        select.innerHTML = '<option value="">' + config.etiquetaTodos + '</option>' +
+          (config.valores || []).map(function(valor){
+            return '<option value="' + escapar(valor) + '">' + escapar(valor) + '</option>';
+          }).join('');
+      });
+
+      // El proveedor muestra cuántos títulos aporta cada uno: con 16 a 20
+      // proveedores en la lista, ese número ayuda a orientarse.
+      const selectProveedor = document.getElementById('filtroProveedor');
+      const conConteo = facetas.proveedoresConConteo || [];
+      selectProveedor.innerHTML = '<option value="">Todos</option>' +
+        (conConteo.length
+          ? conConteo.map(function(p){
+              return '<option value="' + escapar(p.proveedor) + '">' +
+                escapar(p.proveedor) + ' (' + p.titulos + ')</option>';
+            }).join('')
+          : (facetas.proveedores || []).map(function(nombre){
+              return '<option value="' + escapar(nombre) + '">' + escapar(nombre) + '</option>';
+            }).join(''));
+
+      // Si el catálogo tiene una sola sede, el filtro de sede no aporta nada.
+      if ((facetas.sedes || []).length <= 1) {
+        document.getElementById('filtroSede').parentElement.style.display = 'none';
+        document.querySelector('.filtros').style.gridTemplateColumns = 'repeat(2, 1fr)';
+      }
+    }
+
+    function llenarSelectoresFormulario(){
+      const sedes = (opciones && opciones.sedes) || [];
+      const tipos = (opciones && opciones.tiposUsuario) || [];
+
+      ['solSede', 'desSede'].forEach(function(id){
+        document.getElementById(id).innerHTML =
+          (sedes.length === 1 ? '' : '<option value="">Selecciona…</option>') +
+          sedes.map(function(s){ return '<option value="' + escapar(s) + '">' + escapar(s) + '</option>'; }).join('');
+      });
+
+      ['solTipoUsuario', 'desTipoUsuario'].forEach(function(id){
+        document.getElementById(id).innerHTML =
+          '<option value="">Selecciona…</option>' +
+          tipos.map(function(t){ return '<option value="' + escapar(t) + '">' + escapar(t) + '</option>'; }).join('');
+      });
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // BÚSQUEDA
+    // ────────────────────────────────────────────────────────────────────
+
+    function buscar(pagina){
+      const miToken = ++tokenBusqueda;
+      paginaActual = pagina;
+
+      document.getElementById('resultados').innerHTML = '<p class="estado">Buscando…</p>';
+      document.getElementById('paginacion').hidden = true;
+
+      google.script.run
+        .withSuccessHandler(function(respuesta){
+          if (miToken !== tokenBusqueda) return; // llegó tarde: ya hay otra búsqueda
+          pintarResultados(respuesta);
+        })
+        .withFailureHandler(function(err){
+          if (miToken !== tokenBusqueda) return;
+          document.getElementById('resultados').innerHTML =
+            '<p class="estado estado-error">No se pudo completar la búsqueda.<br>' + escapar(err.message || err) + '</p>';
+          document.getElementById('conteoResultados').textContent = 'Error en la búsqueda';
+        })
+        .buscarLibros({
+          query: filtros.query,
+          sede: filtros.sede,
+          proveedor: filtros.proveedor,
+          categoria: filtros.categoria,
+          page: pagina
+        });
+    }
+
+    function buscarConRetraso(){
+      clearTimeout(temporizadorBusqueda);
+      // Medio segundo de espera: evita lanzar una búsqueda por cada tecla.
+      temporizadorBusqueda = setTimeout(function(){ buscar(1); }, 450);
+    }
+
+    function pintarResultados(respuesta){
+      const contenedor = document.getElementById('resultados');
+      const conteo = document.getElementById('conteoResultados');
+
+      resultadosActuales = respuesta.items || [];
+      paginaActual = respuesta.page || 1;
+      totalPaginas = respuesta.totalPages || 1;
+
+      const hayFiltros = filtros.query || filtros.sede || filtros.proveedor || filtros.categoria;
+
+      if (respuesta.total === 0) {
+        conteo.textContent = 'Sin resultados';
+        contenedor.innerHTML =
+          '<div class="bloque-sin-resultados">' +
+            '<h3>No encontramos ese título</h3>' +
+            '<p>Prueba con menos palabras o quitando filtros.<br>' +
+              'Si el libro no está en ningún catálogo de los proveedores, puedes pedirlo igual.</p>' +
+            '<button class="acento" type="button" onclick="abrirModalDeseo()">✨ Pedir este libro de todos modos</button>' +
+          '</div>';
+        document.getElementById('paginacion').hidden = true;
+        return;
+      }
+
+      const totalTitulos = (facetas && facetas.totalTitulos) ? facetas.totalTitulos : null;
+      const totalProveedores = (facetas && facetas.totalProveedores) ? facetas.totalProveedores : null;
+
+      conteo.innerHTML = hayFiltros
+        ? '<b>' + respuesta.total.toLocaleString('es-CO') + '</b> resultado(s)'
+        : '<b>' + respuesta.total.toLocaleString('es-CO') + '</b> títulos' +
+          (totalProveedores ? ' de <b>' + totalProveedores + '</b> proveedores' : '');
+
+      contenedor.innerHTML = '<div class="rejilla">' +
+        resultadosActuales.map(function(libro, indice){ return tarjetaLibro(libro, indice); }).join('') +
+        '</div>';
+
+      document.getElementById('paginacion').hidden = totalPaginas <= 1;
+      document.getElementById('indicadorPagina').textContent = 'Página ' + paginaActual + ' de ' + totalPaginas;
+      document.getElementById('btnAnterior').disabled = paginaActual <= 1;
+      document.getElementById('btnSiguiente').disabled = paginaActual >= totalPaginas;
+    }
+
+    function tarjetaLibro(libro, indice){
+      const clave = claveLibro(libro);
+      const enCarrito = carrito.filter(function(item){ return claveLibro(item) === clave; })[0];
+
+      const chips = [];
+      if (textoLimpio(libro.proveedor)) {
+        chips.push('<span class="chip proveedor">' + escapar(libro.proveedor) + '</span>');
+      }
+      if (textoLimpio(libro.categoria)) {
+        chips.push('<span class="chip">' + escapar(libro.categoria) + '</span>');
+      }
+      // El programa solo se muestra si aporta algo distinto de la categoría.
+      if (textoLimpio(libro.programa) && textoLimpio(libro.programa) !== textoLimpio(libro.categoria)) {
+        chips.push('<span class="chip">' + escapar(libro.programa) + '</span>');
+      }
+
+      const meta = [];
+      if (textoLimpio(libro.editorial)) meta.push(escapar(libro.editorial));
+      if (textoLimpio(libro.isbn)) meta.push('ISBN ' + escapar(libro.isbn));
+      if (textoLimpio(libro.stock)) meta.push('Stock: ' + escapar(libro.stock));
+      if (textoLimpio(libro.sede)) meta.push(escapar(libro.sede));
+
+      const control = enCarrito
+        ? '<div class="control-cantidad">' +
+            '<button type="button" aria-label="Quitar un ejemplar" onclick="cambiarCantidadPorClave(\'' +
+              escapar(clave).replace(/'/g, "\\'") + '\', -1)">−</button>' +
+            '<span aria-live="polite">' + enCarrito.cantidad + '</span>' +
+            '<button type="button" aria-label="Agregar un ejemplar" onclick="cambiarCantidadPorClave(\'' +
+              escapar(clave).replace(/'/g, "\\'") + '\', 1)">+</button>' +
+          '</div>'
+        : '<button class="btn-agregar" type="button" onclick="agregarAlCarrito(' + indice + ')">Agregar</button>';
+
+      return '<article class="libro-card' + (enCarrito ? ' en-solicitud' : '') + '">' +
+          '<h3 class="libro-titulo">' + escapar(libro.titulo) + '</h3>' +
+          (textoLimpio(libro.autor) ? '<p class="libro-autor">' + escapar(libro.autor) + '</p>' : '') +
+          (chips.length ? '<div class="chips">' + chips.join('') + '</div>' : '') +
+          (meta.length ? '<p class="libro-meta">' + meta.join(' · ') + '</p>' : '') +
+          (textoLimpio(libro.observaciones)
+            ? '<p class="libro-observaciones">' + escapar(libro.observaciones) + '</p>' : '') +
+          '<div class="libro-pie">' +
+            '<span class="libro-precio">' + formatearPrecio(libro.precio) + '</span>' +
+            control +
+          '</div>' +
+        '</article>';
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CARRITO
+    // ────────────────────────────────────────────────────────────────────
+
+    function agregarAlCarrito(indice){
+      const libro = resultadosActuales[indice];
+      if (!libro) return;
+
+      const clave = claveLibro(libro);
+      const existente = carrito.filter(function(item){ return claveLibro(item) === clave; })[0];
+
+      if (existente) {
+        existente.cantidad += 1;
+      } else {
+        // Se copian solo los campos que el backend usa al registrar el pedido.
+        carrito.push({
+          titulo: textoLimpio(libro.titulo),
+          autor: textoLimpio(libro.autor),
+          isbn: textoLimpio(libro.isbn),
+          proveedor: textoLimpio(libro.proveedor),
+          categoria: textoLimpio(libro.categoria),
+          programa: textoLimpio(libro.programa),
+          precio: aNumero(libro.precio),
+          cantidad: 1
+        });
+        mostrarToast('Agregado: ' + libro.titulo, 'exito');
+      }
+
+      guardarCarrito();
+      pintarCarrito();
+      refrescarTarjetas();
+    }
+
+    function cambiarCantidadPorClave(clave, delta){
+      const indice = indiceEnCarrito(clave);
+      if (indice === -1) return;
+
+      carrito[indice].cantidad += delta;
+      if (carrito[indice].cantidad < 1) carrito.splice(indice, 1);
+
+      guardarCarrito();
+      pintarCarrito();
+      refrescarTarjetas();
+    }
+
+    function quitarDelCarrito(clave){
+      const indice = indiceEnCarrito(clave);
+      if (indice === -1) return;
+      carrito.splice(indice, 1);
+      guardarCarrito();
+      pintarCarrito();
+      refrescarTarjetas();
+    }
+
+    function indiceEnCarrito(clave){
+      for (let i = 0; i < carrito.length; i++) {
+        if (claveLibro(carrito[i]) === clave) return i;
+      }
+      return -1;
+    }
+
+    function vaciarCarrito(){
+      if (!carrito.length) return;
+      if (!window.confirm('¿Quitar todos los títulos de tu solicitud?')) return;
+      carrito = [];
+      limpiarCarritoGuardado();
+      pintarCarrito();
+      refrescarTarjetas();
+    }
+
+    function totalCarrito(){
+      return carrito.reduce(function(suma, item){
+        return suma + aNumero(item.precio) * aNumero(item.cantidad);
+      }, 0);
+    }
+
+    function ejemplaresCarrito(){
+      return carrito.reduce(function(suma, item){ return suma + aNumero(item.cantidad); }, 0);
+    }
+
+    // Vuelve a dibujar las tarjetas visibles para que reflejen el carrito, sin
+    // pedirle otra vez los datos al servidor.
+    function refrescarTarjetas(){
+      if (!resultadosActuales.length) return;
+      const rejilla = document.querySelector('#resultados .rejilla');
+      if (!rejilla) return;
+      rejilla.innerHTML = resultadosActuales.map(function(libro, indice){
+        return tarjetaLibro(libro, indice);
+      }).join('');
+    }
+
+    function pintarCarrito(){
+      const contenedor = document.getElementById('contenidoSolicitud');
+      const barra = document.getElementById('barraMovil');
+
+      if (!carrito.length) {
+        contenedor.innerHTML =
+          '<p class="solicitud-vacia">Todavía no has agregado títulos.<br>' +
+          'Busca en el catálogo y pulsa <strong>Agregar</strong>.</p>' +
+          '<button class="secundario" type="button" style="width:100%;" onclick="abrirModalDeseo()">' +
+          '✨ Pedir un libro que no está</button>';
+        barra.hidden = true;
+        return;
+      }
+
+      const lista = carrito.map(function(item){
+        const clave = claveLibro(item);
+        const claveJs = escapar(clave).replace(/'/g, "\\'");
+        return '<li class="item-solicitud">' +
+            '<div>' +
+              '<div class="item-solicitud-titulo">' + escapar(item.titulo) + '</div>' +
+              '<div class="item-solicitud-sub">' +
+                formatearPrecio(item.precio) + ' × ' + item.cantidad +
+                ' = ' + formatearPrecio(aNumero(item.precio) * aNumero(item.cantidad)) +
+              '</div>' +
+              '<div class="control-cantidad" style="margin-top:6px;">' +
+                '<button type="button" aria-label="Quitar un ejemplar" onclick="cambiarCantidadPorClave(\'' + claveJs + '\', -1)">−</button>' +
+                '<span>' + item.cantidad + '</span>' +
+                '<button type="button" aria-label="Agregar un ejemplar" onclick="cambiarCantidadPorClave(\'' + claveJs + '\', 1)">+</button>' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-quitar" type="button" aria-label="Quitar de la solicitud" onclick="quitarDelCarrito(\'' + claveJs + '\')">×</button>' +
+          '</li>';
+      }).join('');
+
+      contenedor.innerHTML =
+        '<ul class="lista-solicitud">' + lista + '</ul>' +
+        '<div class="total-solicitud">' +
+          '<span>' + ejemplaresCarrito() + ' ejemplar(es)</span>' +
+          '<strong>' + formatearPrecio(totalCarrito()) + '</strong>' +
+        '</div>' +
+        '<button class="primario" type="button" style="width:100%;" onclick="abrirModalSolicitud()">Enviar solicitud</button>' +
+        '<button class="secundario" type="button" style="width:100%; margin-top:8px;" onclick="vaciarCarrito()">Vaciar</button>' +
+        '<p class="nota-precio">Los precios son de referencia del catálogo y pueden variar. ' +
+        'La biblioteca revisa cada solicitud antes de comprar.</p>';
+
+      barra.hidden = false;
+      document.getElementById('barraMovilTexto').textContent =
+        'Ver mi solicitud · ' + ejemplaresCarrito() + ' ejemplar(es)';
+      document.getElementById('barraMovilTotal').textContent = formatearPrecio(totalCarrito());
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // ENVÍO DE LA SOLICITUD
+    // ────────────────────────────────────────────────────────────────────
+
+    function abrirModalSolicitud(){
+      if (!carrito.length) {
+        mostrarToast('Primero agrega al menos un título.', 'error');
+        return;
+      }
+      if (!opciones) {
+        mostrarToast('Todavía se están cargando las opciones del formulario. Intenta en unos segundos.', 'error');
+        return;
+      }
+
+      document.getElementById('errorSolicitud').hidden = true;
+      document.getElementById('resumenModalSolicitud').innerHTML =
+        '<h3>Títulos que vas a solicitar (' + carrito.length + ')</h3>' +
+        '<ul>' + carrito.map(function(item){
+          return '<li>' + escapar(item.titulo) +
+            (item.cantidad > 1 ? ' <strong>×' + item.cantidad + '</strong>' : '') + '</li>';
+        }).join('') + '</ul>' +
+        '<div class="total"><span>Valor total estimado</span><strong>' + formatearPrecio(totalCarrito()) + '</strong></div>';
+
+      abrirModal('modalSolicitud');
+    }
+
+    // Valida los campos comunes a los dos formularios. Devuelve los datos ya
+    // limpios, o null si algo falta. El backend valida otra vez lo mismo: esto
+    // es solo para avisar rápido y sin viaje al servidor.
+    function leerDatosPersona(prefijo, contenedorError, asignaturaObligatoria){
+      const obtener = function(campo){ return document.getElementById(prefijo + campo); };
+      const campos = ['Sede','Nombre','Documento','Email','TipoUsuario','Facultad','Programa','Asignatura'];
+      campos.forEach(function(campo){
+        const elemento = obtener(campo);
+        if (elemento) elemento.removeAttribute('aria-invalid');
+      });
+
+      const datos = {
+        sede: textoLimpio(obtener('Sede').value),
+        nombre: textoLimpio(obtener('Nombre').value),
+        documento: textoLimpio(obtener('Documento').value),
+        email: textoLimpio(obtener('Email').value),
+        tipoUsuario: textoLimpio(obtener('TipoUsuario').value),
+        facultad: textoLimpio(obtener('Facultad').value),
+        programa: textoLimpio(obtener('Programa').value),
+        asignatura: textoLimpio(obtener('Asignatura').value)
+      };
+
+      const problemas = [
+        { campo: 'Sede', ok: !!datos.sede, mensaje: 'Selecciona la sede.' },
+        { campo: 'Nombre', ok: !!datos.nombre, mensaje: 'Escribe tu nombre completo.' },
+        { campo: 'Documento', ok: !!datos.documento, mensaje: 'Escribe tu número de documento.' },
+        { campo: 'Email', ok: REGEX_EMAIL_CLIENTE.test(datos.email), mensaje: 'Escribe un correo electrónico válido.' },
+        { campo: 'TipoUsuario', ok: !!datos.tipoUsuario, mensaje: 'Selecciona el tipo de usuario.' },
+        { campo: 'Facultad', ok: !!datos.facultad, mensaje: 'Escribe la facultad.' },
+        { campo: 'Programa', ok: !!datos.programa, mensaje: 'Escribe el programa académico.' }
+      ];
+      if (asignaturaObligatoria) {
+        problemas.push({ campo: 'Asignatura', ok: !!datos.asignatura, mensaje: 'Escribe la asignatura.' });
+      }
+
+      const primerProblema = problemas.filter(function(p){ return !p.ok; })[0];
+      if (primerProblema) {
+        const elemento = obtener(primerProblema.campo);
+        if (elemento) {
+          elemento.setAttribute('aria-invalid', 'true');
+          elemento.focus();
+        }
+        contenedorError.textContent = primerProblema.mensaje;
+        contenedorError.hidden = false;
+        return null;
+      }
+
+      contenedorError.hidden = true;
+      return datos;
+    }
+
+    function enviarSolicitud(){
+      const contenedorError = document.getElementById('errorSolicitud');
+      const datos = leerDatosPersona('sol', contenedorError, true);
+      if (!datos) return;
+
+      if (!carrito.length) {
+        contenedorError.textContent = 'Tu solicitud no tiene títulos.';
+        contenedorError.hidden = false;
+        return;
+      }
+
+      datos.libros = carrito.map(function(item){
+        return {
+          titulo: item.titulo, autor: item.autor, isbn: item.isbn,
+          proveedor: item.proveedor, categoria: item.categoria, programa: item.programa,
+          precio: aNumero(item.precio), cantidad: aNumero(item.cantidad)
+        };
+      });
+
+      const boton = document.getElementById('btnEnviarSolicitud');
+      boton.disabled = true;
+      boton.textContent = 'Enviando…';
+
+      google.script.run
+        .withSuccessHandler(function(resultado){
+          boton.disabled = false;
+          boton.textContent = 'Enviar solicitud';
+          cerrarModal('modalSolicitud');
+
+          // La solicitud ya quedó registrada: se limpia el carrito para que
+          // nadie la envíe dos veces sin darse cuenta.
+          carrito = [];
+          limpiarCarritoGuardado();
+          pintarCarrito();
+          refrescarTarjetas();
+
+          mostrarConfirmacion({
+            titulo: '¡Solicitud enviada!',
+            texto: 'La biblioteca ya recibió tu solicitud de ' + resultado.cantidadLibros +
+                   ' título(s), por un valor estimado de ' + formatearPrecio(resultado.total) + '.',
+            etiquetaId: 'Tu número de solicitud',
+            id: resultado.idSolicitud,
+            fecha: resultado.fecha
+          });
+        })
+        .withFailureHandler(function(err){
+          boton.disabled = false;
+          boton.textContent = 'Enviar solicitud';
+          contenedorError.textContent = err.message || 'No se pudo enviar la solicitud. Intenta de nuevo.';
+          contenedorError.hidden = false;
+        })
+        .registrarPedido(datos);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // LIBRO FUERA DE CATÁLOGO
+    // ────────────────────────────────────────────────────────────────────
+
+    function abrirModalDeseo(){
+      if (!opciones) {
+        mostrarToast('Todavía se están cargando las opciones del formulario. Intenta en unos segundos.', 'error');
+        return;
+      }
+      document.getElementById('errorDeseo').hidden = true;
+
+      // Si la persona venía buscando algo y no lo encontró, ese texto es casi
+      // siempre el título que quiere pedir: se precarga para no hacerla escribirlo otra vez.
+      const campoTitulo = document.getElementById('desTitulo');
+      if (!textoLimpio(campoTitulo.value) && filtros.query) campoTitulo.value = filtros.query;
+
+      abrirModal('modalDeseo');
+    }
+
+    function enviarDeseo(){
+      const contenedorError = document.getElementById('errorDeseo');
+      const datos = leerDatosPersona('des', contenedorError, false);
+      if (!datos) return;
+
+      const tituloDeseado = textoLimpio(document.getElementById('desTitulo').value);
+      if (!tituloDeseado) {
+        const campo = document.getElementById('desTitulo');
+        campo.setAttribute('aria-invalid', 'true');
+        campo.focus();
+        contenedorError.textContent = 'Escribe el título del libro que necesitas.';
+        contenedorError.hidden = false;
+        return;
+      }
+      document.getElementById('desTitulo').removeAttribute('aria-invalid');
+
+      datos.tituloDeseado = tituloDeseado;
+      datos.autorDeseado = textoLimpio(document.getElementById('desAutor').value);
+      datos.isbnDeseado = textoLimpio(document.getElementById('desIsbn').value);
+      datos.proveedorDeseado = textoLimpio(document.getElementById('desProveedor').value);
+      datos.comentario = textoLimpio(document.getElementById('desComentario').value);
+      datos.cantidad = Math.max(1, parseInt(document.getElementById('desCantidad').value, 10) || 1);
+
+      const boton = document.getElementById('btnEnviarDeseo');
+      boton.disabled = true;
+      boton.textContent = 'Enviando…';
+
+      google.script.run
+        .withSuccessHandler(function(resultado){
+          boton.disabled = false;
+          boton.textContent = 'Enviar solicitud especial';
+          cerrarModal('modalDeseo');
+          limpiarFormularioDeseo();
+
+          mostrarConfirmacion({
+            titulo: '¡Solicitud especial enviada!',
+            texto: 'La biblioteca revisará si es posible conseguir «' + tituloDeseado + '».',
+            etiquetaId: 'Tu número de solicitud',
+            id: resultado.idDeseo,
+            fecha: resultado.fecha
+          });
+        })
+        .withFailureHandler(function(err){
+          boton.disabled = false;
+          boton.textContent = 'Enviar solicitud especial';
+          contenedorError.textContent = err.message || 'No se pudo enviar la solicitud. Intenta de nuevo.';
+          contenedorError.hidden = false;
+        })
+        .registrarDeseo(datos);
+    }
+
+    // Solo se limpian los campos del libro; los datos de la persona se dejan
+    // por si quiere pedir otro título seguido.
+    function limpiarFormularioDeseo(){
+      ['desTitulo','desAutor','desIsbn','desProveedor','desComentario'].forEach(function(id){
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('desCantidad').value = '1';
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CONFIRMACIÓN E HISTORIAL
+    // ────────────────────────────────────────────────────────────────────
+
+    function mostrarConfirmacion(info){
+      document.getElementById('contenidoConfirmacion').innerHTML =
+        '<div class="marca" aria-hidden="true">✓</div>' +
+        '<h3>' + escapar(info.titulo) + '</h3>' +
+        '<p>' + escapar(info.texto) + '</p>' +
+        '<div class="caja-id">' +
+          '<span class="etiqueta">' + escapar(info.etiquetaId) + '</span>' +
+          '<span class="valor">' + escapar(info.id) + '</span>' +
+        '</div>' +
+        '<p style="font-size:12.5px;">Registrada el ' + formatearFecha(info.fecha) +
+        '.<br>Guarda este número para hacerle seguimiento.</p>';
+      abrirModal('modalConfirmacion');
+    }
+
+    function consultarHistorial(){
+      const email = textoLimpio(document.getElementById('histEmail').value);
+      const contenedor = document.getElementById('resultadoHistorial');
+
+      if (!REGEX_EMAIL_CLIENTE.test(email)) {
+        contenedor.innerHTML = '<p class="mensaje-error-modal">Escribe un correo electrónico válido.</p>';
+        return;
+      }
+
+      const boton = document.getElementById('btnConsultarHistorial');
+      boton.disabled = true;
+      boton.textContent = 'Consultando…';
+      contenedor.innerHTML = '<p class="estado">Consultando…</p>';
+
+      google.script.run
+        .withSuccessHandler(function(lista){
+          boton.disabled = false;
+          boton.textContent = 'Consultar';
+          pintarHistorial(lista);
+        })
+        .withFailureHandler(function(err){
+          boton.disabled = false;
+          boton.textContent = 'Consultar';
+          contenedor.innerHTML = '<p class="mensaje-error-modal">' + escapar(err.message || err) + '</p>';
+        })
+        .obtenerHistorialPedidos(email);
+    }
+
+    function pintarHistorial(lista){
+      const contenedor = document.getElementById('resultadoHistorial');
+
+      if (!lista || !lista.length) {
+        contenedor.innerHTML =
+          '<p class="estado">No encontramos solicitudes con ese correo.<br>' +
+          'Revisa que sea el mismo que usaste al enviarlas.</p>';
+        return;
+      }
+
+      contenedor.innerHTML = lista.map(function(solicitud){
+        const completada = solicitud.estado === 'Completado';
+        const libros = (solicitud.libros || []).map(function(libro){
+          const cantidad = aNumero(libro.cantidad) || 1;
+          return '<li>' + escapar(libro.titulo) + (cantidad > 1 ? ' <strong>×' + cantidad + '</strong>' : '') + '</li>';
+        }).join('');
+
+        return '<div class="historial-card' + (completada ? '' : ' pendiente') + '">' +
+            '<div class="historial-cabecera">' +
+              '<span class="historial-id">' + escapar(solicitud.idSolicitud) + '</span>' +
+              '<span class="historial-estado' + (completada ? ' completado' : '') + '">' +
+                escapar(solicitud.estado) + '</span>' +
+            '</div>' +
+            '<ul>' + libros + '</ul>' +
+            '<div style="color:var(--texto-suave); font-size:11.5px;">' +
+              formatearFecha(solicitud.fecha) + ' · Total: ' + formatearPrecio(solicitud.total) +
+            '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // EVENTOS
+    // ────────────────────────────────────────────────────────────────────
+
+    const campoQuery = document.getElementById('campoQuery');
+    campoQuery.addEventListener('input', function(){
+      filtros.query = campoQuery.value;
+      document.getElementById('btnLimpiarTexto').hidden = !campoQuery.value;
+      buscarConRetraso();
+    });
+    campoQuery.addEventListener('keydown', function(evento){
+      if (evento.key === 'Enter') {
+        clearTimeout(temporizadorBusqueda);
+        buscar(1);
+      }
+    });
+
+    document.getElementById('btnLimpiarTexto').addEventListener('click', function(){
+      campoQuery.value = '';
+      filtros.query = '';
+      document.getElementById('btnLimpiarTexto').hidden = true;
+      campoQuery.focus();
+      buscar(1);
+    });
+
+    [['filtroSede','sede'], ['filtroProveedor','proveedor'], ['filtroCategoria','categoria']]
+      .forEach(function(par){
+        document.getElementById(par[0]).addEventListener('change', function(evento){
+          filtros[par[1]] = evento.target.value;
+          buscar(1);
+        });
+      });
+
+    document.getElementById('btnLimpiarFiltros').addEventListener('click', function(){
+      filtros = { query: '', sede: '', proveedor: '', categoria: '' };
+      campoQuery.value = '';
+      document.getElementById('btnLimpiarTexto').hidden = true;
+      ['filtroSede','filtroProveedor','filtroCategoria'].forEach(function(id){
+        document.getElementById(id).value = '';
+      });
+      buscar(1);
+    });
+
+    document.getElementById('btnAnterior').addEventListener('click', function(){
+      if (paginaActual > 1) { buscar(paginaActual - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    });
+    document.getElementById('btnSiguiente').addEventListener('click', function(){
+      if (paginaActual < totalPaginas) { buscar(paginaActual + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    });
+
+    document.getElementById('btnAbrirHistorial').addEventListener('click', function(){ abrirModal('modalHistorial'); });
+    document.getElementById('btnAbrirDeseoCabecera').addEventListener('click', abrirModalDeseo);
+    document.getElementById('btnEnviarSolicitud').addEventListener('click', enviarSolicitud);
+    document.getElementById('btnEnviarDeseo').addEventListener('click', enviarDeseo);
+    document.getElementById('btnConsultarHistorial').addEventListener('click', consultarHistorial);
+    document.getElementById('histEmail').addEventListener('keydown', function(evento){
+      if (evento.key === 'Enter') consultarHistorial();
+    });
+
+    document.getElementById('barraMovil').addEventListener('click', function(){
+      document.getElementById('panelSolicitud').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    iniciar();
+  </script>
+</body>
+</html>

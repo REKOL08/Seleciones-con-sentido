@@ -406,6 +406,25 @@ function getFacetsData() {
   };
 }
 
+// Entrega al formulario público (Index.html) las listas de valores que el
+// backend acepta, para que el HTML no tenga que repetirlas por su cuenta y
+// quedar desincronizado si alguien agrega una sede o un tipo de usuario.
+//
+// OJO con la palabra "sede", que aquí significa dos cosas distintas:
+//   · SEDES_VALIDAS  → las sedes de la operación. Es lo que se guarda en la
+//                      solicitud y lo que validan registrarPedido/registrarDeseo.
+//   · facetas.sedes  → los valores de la columna "Sede" del catálogo, que se
+//                      usan solo para FILTRAR títulos. Pueden no coincidir.
+// Por eso el formulario toma sus opciones de aquí y no de getFacetsData().
+function obtenerOpcionesFormulario() {
+  return {
+    ciudad: CIUDAD,
+    sedes: SEDES_VALIDAS.slice(),
+    tiposUsuario: TIPOS_USUARIO_VALIDOS.slice(),
+    tamanoPagina: TAMANO_PAGINA
+  };
+}
+
 // Búsqueda + filtros + paginación
 function buscarLibros(opts) {
   opts = opts || {};
@@ -2139,6 +2158,204 @@ function confirmarCargueMasivo(textoArchivo, nombreArchivo, omitirFilasConError)
     omitirFilasConError: omitirFilasConError === true,
     nombreArchivo: nombreArchivo
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PUESTA EN MARCHA SOBRE UNA HOJA DE CÁLCULO EXISTENTE
+// ════════════════════════════════════════════════════════════════════════
+// Para cuando ya se tiene el archivo con el catálogo consolidado de los
+// proveedores y se quiere montar el sistema encima (Extensiones > Apps
+// Script > pegar el código).
+//
+// Ejecutar configurarSistema() UNA VEZ desde el editor y leer el resultado
+// en "Registro de ejecución". La función:
+//
+//   · NUNCA toca, reordena ni borra el catálogo. Solo lo lee para revisarlo.
+//   · Crea las pestañas "Pedidos" y "LibrosDeseados" si no existen.
+//   · Revisa que la pestaña del catálogo exista y que sus columnas estén en
+//     el orden que el código espera, e informa exactamente qué corregir.
+//
+// Por qué importa el ORDEN de las columnas: leerCatalogoDesdeHoja_() lee por
+// POSICIÓN (fila[0] es Proveedor, fila[1] es Sede, …), no por el nombre del
+// encabezado. Si en el archivo el orden es otro, el sistema mostrará los
+// datos cambiados de lugar (por ejemplo, el autor donde va la editorial) sin
+// dar ningún error. Esta revisión existe para atrapar justamente eso.
+// ────────────────────────────────────────────────────────────────────────
+
+// Orden exacto que espera leerCatalogoDesdeHoja_() en la hoja del catálogo.
+const COLUMNAS_CATALOGO_ESPERADAS = [
+  "Proveedor", "Sede", "Titulo", "Autor", "Editorial", "Categoria",
+  "Programa", "Precio", "ISBN", "Stock", "Observaciones", "HojaOrigen"
+];
+
+function configurarSistema() {
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  const reporte = { ok: true, problemas: [], avisos: [], acciones: [] };
+  const lineas = [];
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" Puesta en marcha · Selecciones con Sentido · " + CIUDAD);
+  lineas.push("══════════════════════════════════════════════════");
+
+  const nombresHojas = libro.getSheets().map(function (h) { return h.getName(); });
+  lineas.push("");
+  lineas.push("Pestañas encontradas en el archivo:");
+  nombresHojas.forEach(function (n) { lineas.push("  · " + n); });
+
+  // ── 1. Catálogo ──────────────────────────────────────────────────────
+  lineas.push("");
+  lineas.push("1) CATÁLOGO (pestaña '" + NOMBRE_HOJA_CATALOGO + "')");
+
+  const hojaCatalogo = libro.getSheetByName(NOMBRE_HOJA_CATALOGO);
+  if (!hojaCatalogo) {
+    reporte.ok = false;
+    reporte.problemas.push("No existe la pestaña '" + NOMBRE_HOJA_CATALOGO + "'.");
+    lineas.push("   ✗ No existe.");
+    lineas.push("     Opción A: renombra la pestaña del catálogo a '" + NOMBRE_HOJA_CATALOGO + "'.");
+    lineas.push("     Opción B: cambia NOMBRE_HOJA_CATALOGO arriba en este archivo");
+    lineas.push("               por el nombre real de tu pestaña.");
+  } else if (hojaCatalogo.getLastRow() < 2) {
+    reporte.ok = false;
+    reporte.problemas.push("La pestaña del catálogo está vacía.");
+    lineas.push("   ✗ Existe pero no tiene filas de datos.");
+  } else {
+    const totalFilas = hojaCatalogo.getLastRow() - 1;
+    const ancho = Math.max(hojaCatalogo.getLastColumn(), COLUMNAS_CATALOGO_ESPERADAS.length);
+    const encabezado = hojaCatalogo.getRange(1, 1, 1, ancho).getValues()[0];
+
+    lineas.push("   ✓ Existe · " + totalFilas + " fila(s) de datos.");
+    lineas.push("   Revisión del orden de columnas (se lee por posición):");
+
+    let desajustes = 0;
+    COLUMNAS_CATALOGO_ESPERADAS.forEach(function (esperada, i) {
+      const real = (encabezado[i] === undefined || encabezado[i] === null) ? '' : String(encabezado[i]).trim();
+      const coincide = normalizarTextoCargue_(real) === normalizarTextoCargue_(esperada);
+      if (coincide) {
+        lineas.push("     ✓ Col " + (i + 1) + ": " + esperada);
+      } else {
+        desajustes++;
+        lineas.push("     ✗ Col " + (i + 1) + ": se esperaba '" + esperada +
+          "' y hay '" + (real || '(vacío)') + "'");
+      }
+    });
+
+    if (desajustes) {
+      reporte.ok = false;
+      reporte.problemas.push("El orden de las columnas del catálogo no coincide en " + desajustes + " posición(es).");
+      lineas.push("");
+      lineas.push("   ⚠ IMPORTANTE: el catálogo se lee por POSICIÓN, no por nombre.");
+      lineas.push("     Con las columnas en otro orden, el sistema mostrará datos");
+      lineas.push("     cambiados de lugar SIN dar ningún error.");
+      lineas.push("     Reordena las columnas del catálogo para que queden así:");
+      lineas.push("     " + COLUMNAS_CATALOGO_ESPERADAS.join(" | "));
+    } else {
+      lineas.push("   ✓ Las 12 columnas están en el orden esperado.");
+    }
+
+    // Proveedores: es el dato que define la operación de Bogotá (16 a 20).
+    try {
+      const diagnostico = verificarProveedores();
+      lineas.push("");
+      lineas.push("   Proveedores detectados: " + diagnostico.total +
+        " (se esperan entre " + PROVEEDORES_ESPERADOS_MIN + " y " + PROVEEDORES_ESPERADOS_MAX + ")");
+      if (diagnostico.aviso) {
+        reporte.avisos.push(diagnostico.aviso);
+        lineas.push("   ⚠ " + diagnostico.aviso);
+      } else {
+        lineas.push("   ✓ Dentro del rango esperado.");
+      }
+      diagnostico.detalle.forEach(function (d) {
+        lineas.push("       · " + d.proveedor + ": " + d.titulos + " títulos");
+      });
+    } catch (err) {
+      reporte.avisos.push("No se pudieron contar los proveedores: " + err.message);
+      lineas.push("   ⚠ No se pudieron contar los proveedores: " + err.message);
+    }
+  }
+
+  // ── 2. Hojas de trabajo del sistema ──────────────────────────────────
+  // Solo se CREAN si faltan. Si ya existen, no se toca su contenido.
+  lineas.push("");
+  lineas.push("2) PESTAÑAS DEL SISTEMA");
+
+  let hojaPedidos = libro.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+  if (!hojaPedidos) {
+    hojaPedidos = libro.insertSheet(NOMBRE_HOJA_PEDIDOS);
+    reporte.acciones.push("Se creó la pestaña '" + NOMBRE_HOJA_PEDIDOS + "'.");
+    lineas.push("   + Se creó '" + NOMBRE_HOJA_PEDIDOS + "'.");
+  } else {
+    lineas.push("   ✓ '" + NOMBRE_HOJA_PEDIDOS + "' ya existía (no se modificaron sus datos).");
+  }
+  inicializarHojaPedidos_(hojaPedidos);
+  lineas.push("     Columnas: " + ENCABEZADOS_PEDIDOS.join(" | "));
+
+  let hojaDeseos = libro.getSheetByName(NOMBRE_HOJA_DESEOS);
+  if (!hojaDeseos) {
+    hojaDeseos = libro.insertSheet(NOMBRE_HOJA_DESEOS);
+    reporte.acciones.push("Se creó la pestaña '" + NOMBRE_HOJA_DESEOS + "'.");
+    lineas.push("   + Se creó '" + NOMBRE_HOJA_DESEOS + "'.");
+  } else {
+    lineas.push("   ✓ '" + NOMBRE_HOJA_DESEOS + "' ya existía (no se modificaron sus datos).");
+  }
+  inicializarHojaDeseos_(hojaDeseos);
+
+  // ── 3. Script Properties ─────────────────────────────────────────────
+  lineas.push("");
+  lineas.push("3) CONFIGURACIÓN (Configuración del proyecto > Propiedades del script)");
+
+  const propiedades = PropertiesService.getScriptProperties();
+  const requeridas = [
+    { clave: 'CLAVE_BIBLIOTECA', obligatoria: true, nota: 'clave del Panel de Biblioteca' },
+    { clave: 'CORREO_BIBLIOTECA', obligatoria: true, nota: 'correo que recibe las notificaciones' },
+    { clave: 'ID_LOGO', obligatoria: false, nota: 'ID en Drive del logo (opcional)' },
+    { clave: 'URL_APP_WEB', obligatoria: false, nota: 'respaldo de la URL publicada (opcional)' }
+  ];
+
+  requeridas.forEach(function (p) {
+    const valor = propiedades.getProperty(p.clave);
+    if (valor) {
+      lineas.push("   ✓ " + p.clave + " configurada");
+    } else if (p.obligatoria) {
+      reporte.ok = false;
+      reporte.problemas.push("Falta configurar " + p.clave + " (" + p.nota + ").");
+      lineas.push("   ✗ " + p.clave + " SIN configurar — " + p.nota);
+    } else {
+      lineas.push("   · " + p.clave + " sin configurar — " + p.nota);
+    }
+  });
+
+  // ── 4. Archivos de interfaz ──────────────────────────────────────────
+  lineas.push("");
+  lineas.push("4) ARCHIVOS HTML DEL PROYECTO");
+  ['Index', 'Biblioteca', 'Abrir'].forEach(function (nombre) {
+    try {
+      HtmlService.createTemplateFromFile(nombre);
+      lineas.push("   ✓ " + nombre + ".html presente");
+    } catch (err) {
+      reporte.ok = false;
+      reporte.problemas.push("Falta el archivo " + nombre + ".html en el proyecto.");
+      lineas.push("   ✗ Falta " + nombre + ".html — créalo con Archivo > Nuevo > Archivo HTML");
+    }
+  });
+
+  // ── Resumen ──────────────────────────────────────────────────────────
+  lineas.push("");
+  lineas.push("══════════════════════════════════════════════════");
+  if (reporte.ok && !reporte.avisos.length) {
+    lineas.push(" TODO LISTO. Siguiente paso: Implementar > Nueva implementación");
+    lineas.push(" > Aplicación web. Luego ejecuta obtenerUrlsSistema().");
+  } else if (reporte.ok) {
+    lineas.push(" LISTO CON AVISOS. Revisa los ⚠ de arriba antes de publicar.");
+  } else {
+    lineas.push(" FALTAN COSAS POR CORREGIR:");
+    reporte.problemas.forEach(function (p) { lineas.push("   ✗ " + p); });
+    lineas.push(" Corrige lo anterior y vuelve a ejecutar configurarSistema().");
+  }
+  lineas.push("══════════════════════════════════════════════════");
+
+  Logger.log(lineas.join("\n"));
+  reporte.informe = lineas.join("\n");
+  return reporte;
 }
 
 // ────────────────────────────────────────────────────────────────────────

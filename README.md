@@ -34,7 +34,7 @@ web y Script Properties propias).
 | Sistema | Archivos | Particularidades |
 |---|---|---|
 | Valledupar (base) | `Código.gs`, `Biblioteca.html` | Implementación original |
-| Bogotá | `bogota/` | 16–20 proveedores · página puente de QR · plan B de contingencia |
+| Bogotá | `bogota/` | Interfaz completa · 16–20 proveedores · página puente de QR · plan B de contingencia |
 
 El sistema de Bogotá conserva la misma estructura y metodología, y agrega:
 
@@ -46,8 +46,11 @@ El sistema de Bogotá conserva la misma estructura y metodología, y agrega:
    → `docs/bogota-cargue-masivo.md`
 3. **Columna `Origen`** en la hoja `Pedidos` (única diferencia de esquema).
 4. **Hoja "Por Proveedor"** en el Excel de resumen.
+5. **Buscador público** (`bogota/Index.html`), la vista que en la instalación
+   base todavía está pendiente de incorporar.
+6. **`configurarSistema()`**, que verifica la hoja de cálculo antes de publicar.
 
-Ver `bogota/README.md` para la instalación de esa variante.
+Ver `bogota/README.md` y `docs/bogota-instalacion.md` para instalar esa variante.
 
 ## Arquitectura funcional
 

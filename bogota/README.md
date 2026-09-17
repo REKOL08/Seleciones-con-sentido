@@ -13,11 +13,14 @@ estructura y metodología, y agrega dos capacidades propias.
 | `Código.gs` | Backend completo (catálogo, solicitudes, panel, plan B, QR) |
 | `Biblioteca.html` | Panel interno del personal de biblioteca |
 | `Abrir.html` | Página puente de los códigos QR |
-| `Config.example.gs` | Configuración de referencia. No contiene secretos |
-| `Index.html` | **Pendiente.** Buscador público, aún no disponible en el repositorio |
+| `Index.html` | Buscador público: catálogo, filtros, solicitud, historial |
+| `Config.example.gs` | Configuración de referencia. No contiene secretos. No se pega en el proyecto |
 
 En Apps Script los archivos van todos al mismo nivel del proyecto; la carpeta
 `bogota/` solo existe para separarlo de Valledupar dentro de este repositorio.
+
+**Para instalarlo sobre el archivo que ya tiene el catálogo de proveedores, ver
+`docs/bogota-instalacion.md`** (paso a paso desde Extensiones → Apps Script).
 
 ## Qué cambia respecto a Valledupar
 
@@ -66,20 +69,27 @@ Es la **única diferencia de esquema** respecto a Valledupar, y existe
 
 ## Instalación
 
-1. Crear un proyecto de Apps Script **nuevo**, asociado a la hoja de cálculo de
-   Bogotá (no reutilizar el de Valledupar).
-2. Copiar `Código.gs`, `Biblioteca.html` y `Abrir.html` al proyecto.
-3. Incorporar `Index.html` cuando esté disponible.
-4. Crear las hojas con los encabezados definidos en `docs/estructura-datos.md`,
-   más la columna `Origen` en `Pedidos`.
-5. Configurar las Script Properties (ver abajo).
-6. Publicar como Web App según las políticas de la institución.
-7. Ejecutar `obtenerUrlsSistema()` desde el editor y anotar la URL marcada como
+Guía completa y paso a paso: **`docs/bogota-instalacion.md`**.
+
+Resumen:
+
+1. Abrir la hoja de cálculo con el catálogo → **Extensiones → Apps Script**
+   (si el archivo es `.xlsx`, convertirlo antes a Hojas de cálculo de Google).
+2. Pegar `Código.gs` y crear tres archivos HTML: `Index`, `Biblioteca`, `Abrir`.
+3. Configurar las Script Properties (ver abajo).
+4. Ejecutar **`configurarSistema()`** desde el editor: revisa el catálogo
+   columna por columna, crea las pestañas que falten y dice qué corregir.
+5. Publicar como Web App según las políticas de la institución.
+6. Ejecutar `obtenerUrlsSistema()` y anotar la URL marcada como
    "URL PARA IMPRIMIR EN EL QR".
-8. Ejecutar `verificarProveedores()` y confirmar que el catálogo quedó dentro
-   del rango 16–20.
-9. Probar con datos ficticios: `probarRegistrarPedido()` y
-   `probarCargueMasivo()`.
+7. Probar con datos ficticios: `probarRegistrarPedido()` y `probarCargueMasivo()`.
+
+### Cuidado con el orden de las columnas del catálogo
+
+`leerCatalogoDesdeHoja_()` lee el catálogo **por posición**, no por el nombre
+del encabezado. Si las columnas están en otro orden, el sistema **no falla**:
+muestra los datos cambiados de lugar. `configurarSistema()` existe en buena
+parte para detectar eso antes de la jornada.
 
 ## Script Properties
 
@@ -104,10 +114,6 @@ propia.
 
 ## Qué falta
 
-- **`Index.html`** — el buscador público no está en el repositorio. El backend
-  ya lo espera en `doGet()` y mantiene el mismo contrato de funciones que
-  Valledupar (`getFacetsData`, `buscarLibros`, `registrarPedido`,
-  `registrarDeseo`, `obtenerHistorialPedidos`).
 - Verificación en dispositivos reales del salto a Safari desde el QR
   (ver la lista de pruebas en `docs/bogota-qr-safari.md`).
 - Verificación en Apps Script real de la generación del `.xlsx` de la plantilla
