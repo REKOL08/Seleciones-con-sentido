@@ -90,7 +90,7 @@ Guarda (💾 o Ctrl+S).
 | `CORREO_BIBLIOTECA` | Correo que recibirá las notificaciones | Sí |
 | `CORREOS_ADMIN` | Correos autorizados para las funciones de mantenimiento, separados por comas | Recomendada |
 | `ID_LOGO` | ID del archivo del logo en Drive | No |
-| `URL_APP_WEB` | Se llena después del paso 6 | No |
+| `URL_APP_WEB` | Se llena en el paso 6, con la URL que termina en `/exec` | **Sí**, si no el QR apuntará a la URL de pruebas |
 
 Estos valores **nunca** se escriben dentro del código.
 
@@ -172,7 +172,17 @@ que falte un permiso.
 
 **En el código QR va la de `/exec`**, con `?qr=1` al final.
 
-Copia la URL de `/exec` y pégala en la Script Property `URL_APP_WEB`.
+⚠️ **`obtenerUrlsSistema()` ejecutado desde el editor no puede adivinarla.**
+`ScriptApp.getService().getUrl()` devuelve la URL de **pruebas** cuando se llama
+desde el editor. Por eso hay que copiar la de `/exec` a mano desde
+**Implementar → Gestionar implementaciones** y guardarla en `URL_APP_WEB`;
+a partir de ahí el sistema la usa para todo.
+
+Si no lo haces, `obtenerUrlsSistema()` te avisa en grande de que la URL que
+tiene es la de pruebas, en vez de dártela como buena.
+
+Los identificadores de `/dev` y `/exec` son **distintos**: no sirve cambiarle el
+final a la URL, hay que copiar la que aparece en Gestionar implementaciones.
 
 ### Cada cambio en el código necesita una implementación nueva
 

@@ -148,21 +148,38 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-// URL pública de esta implementación. Dentro de una petición web real,
-// ScriptApp.getService().getUrl() la devuelve sola; si por alguna razón
-// llega vacía, se cae a la Script Property URL_APP_WEB. Nunca se escribe
-// una URL real dentro del repositorio.
+// URL pública de esta implementación.
+//
+// CUIDADO con ScriptApp.getService().getUrl(): ejecutado desde el editor de
+// Apps Script devuelve la URL de PRUEBAS, la que termina en "/dev". Esa URL
+// solo la puede abrir quien tenga acceso de edición al script; a cualquier
+// otra persona Google le muestra "Necesitas acceso". Es un error fácil de
+// cometer porque la URL se ve casi idéntica a la buena.
+//
+// Por eso se prefiere la Script Property URL_APP_WEB, que la persona que
+// instala copia a mano desde Implementar > Gestionar implementaciones y que
+// sí es la publicada ("/exec"). getUrl() queda solo como respaldo.
+//
+// Los identificadores de "/dev" y "/exec" son distintos, así que NO se puede
+// convertir una en otra cambiando el final: hay que copiar la buena.
+//
+// Nunca se escribe una URL real dentro del repositorio.
 function obtenerUrlAppWeb_() {
-  let url = '';
+  const configurada = (PropertiesService.getScriptProperties()
+    .getProperty('URL_APP_WEB') || '').toString().trim();
+  if (configurada) return configurada;
+
   try {
-    url = ScriptApp.getService().getUrl() || '';
+    return ScriptApp.getService().getUrl() || '';
   } catch (err) {
-    url = '';
+    return '';
   }
-  if (!url) {
-    url = PropertiesService.getScriptProperties().getProperty('URL_APP_WEB') || '';
-  }
-  return url;
+}
+
+// ¿Es la URL de pruebas? Se usa para avisar antes de que alguien imprima un
+// código QR que la mayoría de la gente no va a poder abrir.
+function esUrlDePruebas_(url) {
+  return /\/dev(\?|$)/.test((url || '').toString());
 }
 
 // Descarga el logo institucional desde Drive y lo devuelve como data URI
@@ -3020,6 +3037,12 @@ function configurarSistema() {
     const valor = propiedades.getProperty(p.clave);
     if (valor) {
       lineas.push("   ✓ " + p.clave + " configurada");
+      if (p.clave === 'URL_APP_WEB' && esUrlDePruebas_(valor)) {
+        reporte.ok = false;
+        reporte.problemas.push("URL_APP_WEB apunta a la URL de pruebas ('/dev'). El QR no funcionaría.");
+        lineas.push("     ✗ …pero es la URL de PRUEBAS ('/dev'), que casi nadie puede abrir.");
+        lineas.push("       Cópiala desde Implementar > Gestionar implementaciones ('/exec').");
+      }
       if (p.clave === 'CLAVE_BIBLIOTECA' && valor === 'CAMBIAR_EN_SCRIPT_PROPERTIES') {
         reporte.ok = false;
         reporte.problemas.push("CLAVE_BIBLIOTECA sigue con el valor de ejemplo. Cámbiala.");
@@ -3031,6 +3054,13 @@ function configurarSistema() {
       lineas.push("   ✗ " + p.clave + " SIN configurar — " + p.nota);
     } else {
       lineas.push("   · " + p.clave + " sin configurar — " + p.nota);
+      if (p.clave === 'URL_APP_WEB') {
+        const aviso = "Sin URL_APP_WEB, el sistema usa la URL que devuelve Apps Script, que desde " +
+          "el editor es la de PRUEBAS ('/dev') y casi nadie puede abrir. Cópiala desde " +
+          "Implementar > Gestionar implementaciones (termina en '/exec').";
+        reporte.avisos.push(aviso);
+        lineas.push("     ⚠ " + aviso);
+      }
       if (p.clave === 'CORREOS_ADMIN') {
         const aviso = "Sin CORREOS_ADMIN, las funciones de mantenimiento admiten a cualquier " +
           "cuenta identificada. Con la app publicada para todo el mundo, conviene configurarla.";
@@ -3111,6 +3141,33 @@ function obtenerUrlsSistema() {
     hojaDeCalculo: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
     editorDeAppsScript: "https://script.google.com/home/projects/" + ScriptApp.getScriptId() + "/edit"
   };
+
+  urls.esDePruebas = esUrlDePruebas_(base);
+
+  if (urls.esDePruebas) {
+    // Sin este aviso, es muy fácil imprimir un QR con la URL de pruebas: se
+    // ve casi igual que la buena y funciona perfectamente para quien la
+    // genera, porque esa persona sí tiene acceso de edición al script.
+    Logger.log(
+      "══════════════════════════════════════════════════\n" +
+      " ⚠ ESTA ES LA URL DE PRUEBAS · NO SIRVE PARA EL QR\n" +
+      "══════════════════════════════════════════════════\n" +
+      "La URL detectada termina en '/dev':\n  " + base + "\n\n" +
+      "Esa URL solo la puede abrir quien tenga acceso de EDICIÓN al script.\n" +
+      "A cualquier otra persona Google le muestra 'Necesitas acceso'.\n" +
+      "A ti te funciona justamente porque eres quien edita el proyecto.\n\n" +
+      "Cómo conseguir la URL buena:\n" +
+      "  1. Implementar > Gestionar implementaciones\n" +
+      "  2. En la implementación activa, copia 'URL de la aplicación web'\n" +
+      "     (termina en '/exec')\n" +
+      "  3. Guárdala en la Script Property URL_APP_WEB\n" +
+      "  4. Vuelve a ejecutar obtenerUrlsSistema()\n\n" +
+      "Los identificadores de '/dev' y '/exec' son DISTINTOS: no basta con\n" +
+      "cambiarle el final a la URL, hay que copiar la que aparece ahí.\n" +
+      "══════════════════════════════════════════════════"
+    );
+    return urls;
+  }
 
   Logger.log(
     "── URLs del sistema · Selecciones con Sentido · " + CIUDAD + " ──\n" +
