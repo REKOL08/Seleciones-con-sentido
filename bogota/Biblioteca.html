@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --color-institucional: #7fb536;
+      --color-acento: #F59C2F;
+      --color-acento-secundario: #e6007e;
+      --paper: #F2ECDD;
+      --paper-dark: #E7DFC9;
+      --card: #FBF8F2;
+      --linea: #D8CFB4;
+      --texto: #000000;
+      --texto-suave: #606060;
+      --error: #b3261e;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; padding:0; }
+    body{
+      background:var(--paper);
+      color:var(--texto);
+      font-family:'Inter', sans-serif;
+      min-height:100vh;
+    }
+
+    @keyframes entradaSuave {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce){
+      *, *::before, *::after{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    }
+
+    .logo-biblioteca{
+      max-width: 150px; height: auto; display: block; margin-bottom: 14px;
+      background: #fff; padding: 6px 12px; border-radius: 5px;
+      box-shadow: 0 8px 18px -10px rgba(0,0,0,.4);
+    }
+
+    header{
+      background:var(--color-institucional);
+      color:#ffffff;
+      padding:24px 32px 20px;
+      position:relative;
+      overflow:hidden;
+    }
+    header::after{
+      content:"";
+      position:absolute; left:0; right:0; bottom:0;
+      height:6px;
+      background:repeating-linear-gradient(90deg,
+        #7fb536 0 60px, #F59C2F 60px 120px);
+      opacity:.85;
+    }
+    .eyebrow{
+      font-family:'IBM Plex Mono', monospace;
+      font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+      color:#E7DFC9; margin:0 0 6px;
+    }
+    h1{
+      font-family:'Fraunces', serif; font-weight:600;
+      font-size:clamp(22px,3vw,30px); margin:0; letter-spacing:.01em;
+    }
+    .subtitulo{ margin:6px 0 0; color:#E7DFC9; font-size:13.5px; max-width:640px; }
+
+    main{ max-width:1100px; margin:0 auto; padding:24px 24px 80px; }
+
+    /* ── Pantalla de clave ── */
+    .caja-clave{
+      max-width:380px; margin:60px auto; background:var(--card);
+      border:1px solid var(--linea); border-radius:4px; padding:28px 26px;
+      box-shadow:0 10px 24px -14px rgba(127, 181, 54, 0.35);
+      text-align:center;
+      animation: entradaSuave .5s ease both;
+    }
+    .caja-clave h2{ font-family:'Fraunces', serif; margin:0 0 8px; }
+    .caja-clave p{ color:var(--texto-suave); font-size:13.5px; margin:0 0 18px; }
+    .caja-clave input{
+      width:100%; padding:11px 12px; border:1px solid var(--linea); border-radius:3px;
+      font-size:15px; margin-bottom:12px; box-sizing:border-box; text-align:center;
+      letter-spacing:.05em;
+    }
+    .caja-clave input:focus{ outline:2px solid var(--color-institucional); outline-offset:1px; }
+    .caja-clave .error{ color:var(--error); font-size:12.5px; min-height:16px; margin-bottom:10px; }
+
+    button.primario{
+      font-family:'Inter', sans-serif; font-weight:600; font-size:14px;
+      padding:11px 20px; border:none; border-radius:3px;
+      background:var(--color-institucional); color:#fff; cursor:pointer;
+      transition: filter .2s ease, transform .2s ease, box-shadow .2s ease; width:100%;
+    }
+    button.primario:hover{ filter:brightness(.94); transform: translateY(-2px); box-shadow: 0 10px 18px -10px rgba(127,181,54,.6); }
+    button.primario:disabled{ opacity:.6; cursor:default; filter:none; transform:none; box-shadow:none; }
+
+    button.secundario{
+      font-family:'Inter', sans-serif; font-weight:600; font-size:13px;
+      padding:9px 16px; border:1px solid var(--linea); border-radius:3px;
+      background:#fff; color:var(--texto); cursor:pointer;
+      transition: background .2s ease, transform .2s ease;
+    }
+    button.secundario:hover{ background:var(--paper-dark); transform: translateY(-2px); }
+    button.secundario:disabled{ opacity:.6; cursor:default; transform:none; }
+
+    /* ── Sección: plan B (plantilla y cargue masivo) ── */
+    .seccion-planb{ margin-top:36px; padding-top:16px; border-top:1px dashed var(--linea); }
+    .seccion-titulo{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+    .seccion-titulo h2{ font-family:'Fraunces', serif; font-size:19px; margin:0; }
+    .seccion-sub{ font-size:12.5px; color:var(--texto-suave); margin:0 0 14px; max-width:720px; line-height:1.55; }
+
+    .badge-nuevo{
+      font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+      padding:3px 9px; border-radius:999px; color:#fff; background:var(--color-acento);
+    }
+    .badge-origen{
+      font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+      padding:2px 7px; border-radius:2px; background:var(--color-acento); color:#fff; margin-left:6px;
+    }
+
+    .caja-planb{
+      border:1px solid var(--linea); border-left:4px solid var(--color-acento);
+      border-radius:3px; background:var(--card); padding:16px 18px; margin-bottom:14px;
+    }
+    .caja-planb h3{ font-family:'Fraunces', serif; font-size:15.5px; margin:0 0 6px; }
+    .caja-planb p{ font-size:12.5px; color:var(--texto-suave); margin:0 0 12px; line-height:1.55; }
+    .fila-botones{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+
+    .zona-archivo{
+      border:1px dashed var(--linea); border-radius:3px; background:#fff;
+      padding:14px; margin-bottom:12px; font-size:13px;
+    }
+    .zona-archivo input[type=file]{ font-size:13px; max-width:100%; }
+    .nombre-archivo{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--texto-suave); margin-top:8px; }
+
+    .opcion-omitir{ display:flex; align-items:flex-start; gap:8px; font-size:12.5px; margin:12px 0; color:var(--texto); }
+    .opcion-omitir input{ margin-top:2px; }
+
+    .reporte{ margin-top:14px; font-size:13px; }
+    .reporte-numeros{
+      display:flex; gap:16px; flex-wrap:wrap; font-family:'IBM Plex Mono', monospace;
+      font-size:12px; color:var(--texto-suave); margin-bottom:12px;
+    }
+    .reporte-numeros strong{ color:var(--texto); font-size:16px; display:block; font-family:'Fraunces', serif; }
+    .reporte-ok{ color:var(--color-institucional); font-weight:600; }
+    .reporte-alerta{ color:var(--color-acento); font-weight:600; }
+    .reporte-error{ color:var(--error); font-weight:600; }
+
+    .tabla-errores{
+      width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px;
+      background:#fff; border:1px solid var(--linea);
+    }
+    .tabla-errores th{
+      background:var(--paper-dark); text-align:left; padding:7px 9px; font-weight:600;
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.04em;
+    }
+    .tabla-errores td{ padding:7px 9px; border-top:1px solid var(--linea); vertical-align:top; }
+    .tabla-errores td.fila-num{ font-family:'IBM Plex Mono', monospace; width:60px; color:var(--texto-suave); }
+    .lista-errores-scroll{ max-height:320px; overflow:auto; }
+
+    /* ── Sección: libros deseados (no están en catálogo) ── */
+    .seccion-deseos{ margin-top:36px; padding-top:16px; border-top:1px dashed var(--linea); }
+    .tag-categoria{
+      font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.03em;
+      padding:2px 7px; border-radius:2px; background:var(--paper-dark); color:var(--texto-suave);
+    }
+    .deseo-card{
+      border:1px solid var(--linea); border-left-width:4px; border-left-color:var(--color-acento);
+      border-radius:3px; padding:14px 16px; margin-bottom:12px; background:var(--card);
+      animation: entradaSuave .4s ease both;
+      transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .deseo-card:hover{ transform: translateY(-3px); box-shadow: 0 12px 22px -16px rgba(0,0,0,.3); }
+    .deseo-card.conseguido{ border-left-color:var(--color-institucional); }
+    .deseo-titulo{ font-family:'Fraunces', serif; font-weight:600; font-size:15.5px; margin:0 0 2px; }
+    .deseo-autor{ font-size:12.5px; color:var(--texto-suave); font-style:italic; margin:0 0 8px; }
+    .deseo-comentario{
+      font-size:12.5px; color:var(--texto); background:var(--paper-dark); border-radius:3px;
+      padding:8px 10px; margin:6px 0; font-style:italic;
+    }
+
+    /* ── Panel principal ── */
+    #panel{ display:none; animation: entradaSuave .4s ease both; }
+    .barra-acciones{
+      display:flex; justify-content:space-between; align-items:center;
+      flex-wrap:wrap; gap:12px; margin-bottom:18px;
+    }
+    .resumen-numeros{
+      display:flex; gap:18px; flex-wrap:wrap; font-family:'IBM Plex Mono', monospace;
+      font-size:12.5px; color:var(--texto-suave);
+    }
+    .resumen-numeros strong{ color:var(--texto); font-size:15px; display:block; font-family:'Fraunces', serif; }
+
+    .estado{
+      text-align:center; padding:50px 20px; color:var(--texto-suave);
+      font-family:'Fraunces', serif; font-size:15px;
+    }
+
+    .solicitud-card{
+      border:1px solid var(--linea); border-radius:3px; padding:14px 16px;
+      margin-bottom:12px; background:var(--card);
+      animation: entradaSuave .4s ease both;
+      transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .solicitud-card:hover{ transform: translateY(-3px); box-shadow: 0 12px 22px -16px rgba(0,0,0,.3); }
+    .solicitud-cabecera{
+      display:flex; justify-content:space-between; align-items:baseline;
+      gap:8px; flex-wrap:wrap; margin-bottom:6px;
+    }
+    .solicitud-id{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--texto-suave); }
+    .solicitud-estado{
+      font-family:'IBM Plex Mono', monospace; font-size:10.5px; padding:2px 8px;
+      border-radius:2px; text-transform:uppercase; background:var(--paper-dark);
+    }
+    .solicitud-estado.completado{ background:var(--color-institucional); color:#fff; }
+    .solicitud-persona{ font-size:13px; color:var(--texto-suave); margin:0 0 6px; }
+    .solicitud-persona b{ color:var(--texto); }
+    .solicitud-libros{ font-size:12.5px; margin:6px 0; padding-left:18px; }
+    .solicitud-pie{
+      display:flex; justify-content:space-between; align-items:center;
+      flex-wrap:wrap; gap:8px; font-size:12px; color:var(--texto-suave); margin-top:8px;
+    }
+    .btn-mini{
+      font-family:'Inter', sans-serif; font-size:11.5px; padding:5px 10px;
+      border:1px solid var(--linea); border-radius:3px; background:#fff; cursor:pointer;
+      transition: background .2s ease, transform .2s ease;
+    }
+    .btn-mini:hover{ background:var(--paper-dark); transform: translateY(-1px); }
+    .btn-mini:disabled{ opacity:.6; cursor:default; transform:none; }
+
+    .toast{
+      position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px);
+      background:var(--texto); color:#fff; padding:12px 20px; border-radius:4px;
+      font-family:'Inter', sans-serif; font-size:13.5px; max-width:90%;
+      box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:3000;
+      opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
+    }
+    .toast.visible{ opacity:1; transform:translate(-50%,0); }
+    .toast.exito{ background:var(--color-institucional); }
+    .toast.error{ background:var(--error); }
+
+    .oculto{ display:none; }
+
+    @media (max-width:520px){
+      header{ padding:20px 18px; }
+      main{ padding-left:14px; padding-right:14px; }
+      .barra-acciones{ flex-direction:column; align-items:stretch; }
+      .fila-botones button{ width:100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <img src="<?!= logoDataUri ?>" alt="" class="logo-biblioteca">
+    <p class="eyebrow">Selecciones con Sentido · Bogotá · Acceso interno</p>
+    <h1>Panel de Biblioteca</h1>
+    <p class="subtitulo">Todas las solicitudes registradas, con opción de exportar un resumen en Excel, marcar pedidos como completados y cargar masivamente lo trabajado sin internet.</p>
+  </header>
+
+  <main>
+    <!-- Pantalla de clave -->
+    <div class="caja-clave" id="cajaClave">
+      <h2>Acceso restringido</h2>
+      <p>Ingresa la clave del personal de biblioteca para continuar.</p>
+      <input type="password" id="campoClave" placeholder="Clave de acceso" autocomplete="off">
+      <p class="error" id="errorClave"></p>
+      <button class="primario" id="btnEntrar" onclick="validarClave()">Entrar</button>
+    </div>
+
+    <!-- Panel (oculto hasta validar la clave) -->
+    <div id="panel">
+      <div class="barra-acciones">
+        <div class="resumen-numeros" id="resumenNumeros"></div>
+        <div style="display:flex; gap:10px;">
+          <button class="secundario" onclick="cargarPanel(); cargarDeseos();">↻ Actualizar</button>
+          <button class="primario" id="btnExportar" style="width:auto;" onclick="exportarExcel()">📊 Exportar a Excel</button>
+        </div>
+      </div>
+      <div id="resultados"><p class="estado">Cargando solicitudes…</p></div>
+
+      <!-- ── PLAN B: plantilla de contingencia y cargue masivo ── -->
+      <div class="seccion-planb">
+        <div class="seccion-titulo">
+          <h2>🛟 Plan B · sin internet</h2>
+          <span class="badge-nuevo">contingencia</span>
+        </div>
+        <p class="seccion-sub">
+          Descarga la plantilla <strong>antes</strong> de la jornada y guárdala en el computador.
+          Si se cae el internet, sigue registrando ahí lo que atiendas; cuando vuelva el servicio,
+          sube el archivo aquí y todo entra de una sola vez.
+        </p>
+
+        <div class="caja-planb">
+          <h3>1. Descargar la plantilla</h3>
+          <p>
+            El Excel trae además una hoja de instrucciones y las listas de valores válidos
+            (sedes, tipos de usuario y proveedores del catálogo). El CSV es el mismo formato, más liviano.
+          </p>
+          <div class="fila-botones">
+            <button class="secundario" id="btnPlantillaExcel" onclick="descargarPlantilla('excel')">⬇ Plantilla Excel (.xlsx)</button>
+            <button class="secundario" id="btnPlantillaCsv" onclick="descargarPlantilla('csv')">⬇ Plantilla CSV</button>
+          </div>
+        </div>
+
+        <div class="caja-planb">
+          <h3>2. Subir lo trabajado durante la caída</h3>
+          <p>
+            Sube el archivo en formato <strong>CSV</strong> (si lo llenaste en Excel, usa
+            <em>Archivo → Guardar como → CSV UTF-8</em>). Primero se revisa sin guardar nada y se
+            muestra un reporte; solo se escribe en la hoja cuando confirmas.
+            Subir el mismo archivo dos veces no duplica las solicitudes.
+          </p>
+
+          <div class="zona-archivo">
+            <input type="file" id="archivoCargue" accept=".csv,text/csv,text/plain" onchange="archivoSeleccionado()">
+            <div class="nombre-archivo" id="nombreArchivo"></div>
+          </div>
+
+          <div class="fila-botones">
+            <button class="secundario" id="btnValidar" onclick="validarArchivo()" disabled>🔍 Revisar archivo</button>
+            <button class="primario" id="btnConfirmar" style="width:auto;" onclick="confirmarArchivo()" disabled>✔ Confirmar cargue</button>
+          </div>
+
+          <label class="opcion-omitir oculto" id="opcionOmitir">
+            <input type="checkbox" id="chkOmitir">
+            <span>Cargar únicamente las filas correctas e ignorar las que tienen errores.
+              (Sin esta casilla, un solo error impide el cargue completo.)</span>
+          </label>
+
+          <div class="reporte" id="reporteCargue"></div>
+        </div>
+      </div>
+
+      <!-- ── Libros deseados ── -->
+      <div class="seccion-deseos">
+        <div class="seccion-titulo">
+          <h2>📚 Libros deseados</h2>
+          <span class="badge-nuevo">no están en catálogo</span>
+        </div>
+        <p class="seccion-sub">Solicitudes especiales de libros que los usuarios no encontraron en ningún catálogo de proveedores.</p>
+        <div id="resultadosDeseos"><p class="estado">Cargando…</p></div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let claveValida = null;
+
+    // Texto del archivo que la persona subió. Se guarda en memoria entre la
+    // revisión y la confirmación, para no tener que leer el archivo dos veces
+    // ni volver a pedírselo.
+    let textoArchivoCargue = '';
+    let nombreArchivoCargue = '';
+    let ultimaValidacion = null;
+
+    function escapar(texto){
+      const div = document.createElement('div');
+      div.textContent = (texto === null || texto === undefined) ? '' : String(texto);
+      return div.innerHTML;
+    }
+
+    function formatearPrecio(valor){
+      if (valor === '' || valor === null || valor === undefined) return '—';
+      const num = Number(valor);
+      if (isNaN(num)) return escapar(valor);
+      return '$ ' + num.toLocaleString('es-CO');
+    }
+
+    function formatearFecha(valor){
+      if (!valor) return '—';
+      const fecha = new Date(valor);
+      if (isNaN(fecha.getTime())) return escapar(valor);
+      return fecha.toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    // Animación de conteo ascendente para los números del resumen.
+    function animarConteo(elemento, valorFinal, formateador){
+      const duracion = 600;
+      const inicio = performance.now();
+      function paso(ahora){
+        const avance = Math.min(1, (ahora - inicio) / duracion);
+        const suavizado = 1 - Math.pow(1 - avance, 3);
+        const valorActual = Math.round(valorFinal * suavizado);
+        elemento.textContent = formateador ? formateador(valorActual) : valorActual;
+        if (avance < 1) requestAnimationFrame(paso);
+      }
+      requestAnimationFrame(paso);
+    }
+
+    let toastTemporizador = null;
+    function mostrarToast(mensaje, tipo){
+      const toast = document.getElementById('toast');
+      toast.textContent = mensaje;
+      toast.className = 'toast visible' + (tipo ? ' ' + tipo : '');
+      clearTimeout(toastTemporizador);
+      toastTemporizador = setTimeout(function(){ toast.classList.remove('visible'); }, 6000);
+    }
+
+    function validarClave(){
+      const clave = document.getElementById('campoClave').value;
+      const btn = document.getElementById('btnEntrar');
+      const error = document.getElementById('errorClave');
+      error.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Verificando…';
+
+      google.script.run
+        .withSuccessHandler(function(esValida){
+          btn.disabled = false;
+          btn.textContent = 'Entrar';
+          if (!esValida) {
+            error.textContent = 'Clave incorrecta.';
+            return;
+          }
+          claveValida = clave;
+          document.getElementById('cajaClave').style.display = 'none';
+          document.getElementById('panel').style.display = 'block';
+          cargarPanel();
+          cargarDeseos();
+        })
+        .withFailureHandler(function(err){
+          btn.disabled = false;
+          btn.textContent = 'Entrar';
+          error.textContent = err.message || 'No se pudo verificar la clave.';
+        })
+        .validarClaveBiblioteca(clave);
+    }
+
+    document.getElementById('campoClave').addEventListener('keydown', function(e){
+      if (e.key === 'Enter') validarClave();
+    });
+
+    function cargarPanel(){
+      document.getElementById('resultados').innerHTML = '<p class="estado">Cargando solicitudes…</p>';
+      google.script.run
+        .withSuccessHandler(pintarPanel)
+        .withFailureHandler(function(err){
+          document.getElementById('resultados').innerHTML =
+            '<p class="estado">' + escapar(err.message || err) + '</p>';
+        })
+        .obtenerPanelBibliotecaData();
+    }
+
+    function pintarPanel(lista){
+      const contenedor = document.getElementById('resultados');
+      const resumen = document.getElementById('resumenNumeros');
+
+      if (!lista || lista.length === 0) {
+        resumen.innerHTML = '';
+        contenedor.innerHTML = '<p class="estado">No hay solicitudes registradas todavía.</p>';
+        return;
+      }
+
+      const totalLibros = lista.reduce(function(s, sol){
+        return s + sol.libros.reduce(function(sl, l){ return sl + (Number(l.cantidad) || 1); }, 0);
+      }, 0);
+      const totalValor = lista.reduce(function(s, sol){ return s + sol.total; }, 0);
+      const pendientes = lista.filter(function(sol){ return sol.estado !== 'Completado'; }).length;
+
+      resumen.innerHTML =
+        '<div><strong id="numSolicitudes">0</strong>solicitudes</div>' +
+        '<div><strong id="numLibros">0</strong>ejemplares</div>' +
+        '<div><strong id="numPendientes">0</strong>pendientes</div>' +
+        '<div><strong id="numValor">$ 0</strong>valor total</div>';
+
+      animarConteo(document.getElementById('numSolicitudes'), lista.length);
+      animarConteo(document.getElementById('numLibros'), totalLibros);
+      animarConteo(document.getElementById('numPendientes'), pendientes);
+      animarConteo(document.getElementById('numValor'), totalValor, formatearPrecio);
+
+      contenedor.innerHTML = lista.map(function(sol, indice){
+        const estadoClase = (sol.estado === 'Completado') ? 'solicitud-estado completado' : 'solicitud-estado';
+        const librosHtml = sol.libros.map(function(l){
+          const cant = Number(l.cantidad) || 1;
+          const etiquetaCant = cant > 1 ? ' <strong>×' + cant + '</strong>' : '';
+          const etiquetaCategoria = l.categoria ? ' <span class="tag-categoria">' + escapar(l.categoria) + '</span>' : '';
+          return '<li>' + escapar(l.titulo) + (l.autor ? ' — ' + escapar(l.autor) : '') + etiquetaCant + etiquetaCategoria +
+                 ' <span style="color:var(--texto-suave);">(' + formatearPrecio(l.precio) + (cant > 1 ? ' c/u' : '') + ')</span></li>';
+        }).join('');
+
+        const contexto = [sol.tipoUsuario, sol.facultad, sol.programa, sol.asignatura].filter(Boolean).join(' · ');
+
+        // Solo se marca lo que entró por cargue masivo; lo registrado en línea
+        // es el caso normal y no necesita etiqueta.
+        const etiquetaOrigen = (sol.origen && sol.origen !== 'Web')
+          ? '<span class="badge-origen">' + escapar(sol.origen) + '</span>' : '';
+
+        const botonCompletar = sol.estado !== 'Completado'
+          ? '<button class="btn-mini" onclick="marcarCompletado(\'' + escapar(sol.idSolicitud) + '\', this)">Marcar como completado</button>'
+          : '';
+
+        const demora = Math.min(indice, 9) * 35;
+        return (
+          '<div class="solicitud-card" style="animation-delay:' + demora + 'ms;">' +
+            '<div class="solicitud-cabecera">' +
+              '<span class="solicitud-id">' + escapar(sol.idSolicitud) + ' · ' + escapar(sol.sede) + etiquetaOrigen + '</span>' +
+              '<span class="' + estadoClase + '">' + escapar(sol.estado) + '</span>' +
+            '</div>' +
+            '<p class="solicitud-persona"><b>' + escapar(sol.nombre) + '</b> (' + escapar(sol.documento) + ') · ' + escapar(sol.email) +
+              (contexto ? '<br>' + escapar(contexto) : '') + '</p>' +
+            '<ul class="solicitud-libros">' + librosHtml + '</ul>' +
+            '<div class="solicitud-pie">' +
+              '<span>' + formatearFecha(sol.fecha) + ' · Total: ' + formatearPrecio(sol.total) + '</span>' +
+              botonCompletar +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    function marcarCompletado(idSolicitud, boton){
+      boton.disabled = true;
+      boton.textContent = 'Actualizando…';
+      google.script.run
+        .withSuccessHandler(function(){ cargarPanel(); })
+        .withFailureHandler(function(err){
+          mostrarToast(err.message || 'No se pudo actualizar el estado.', 'error');
+          boton.disabled = false;
+          boton.textContent = 'Marcar como completado';
+        })
+        .actualizarEstadoPedido(idSolicitud, 'Completado');
+    }
+
+    // Convierte el base64 que devuelve el servidor en una descarga del
+    // navegador. Lo usan el export de resumen y las dos plantillas.
+    function descargarBase64(resultado){
+      const binario = atob(resultado.base64);
+      const bytes = new Uint8Array(binario.length);
+      for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+      const blob = new Blob([bytes], { type: resultado.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = resultado.nombreArchivo;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function exportarExcel(){
+      const btn = document.getElementById('btnExportar');
+      btn.disabled = true;
+      btn.textContent = 'Generando archivo…';
+
+      google.script.run
+        .withSuccessHandler(function(resultado){
+          try {
+            descargarBase64(resultado);
+            mostrarToast('Archivo generado: ' + resultado.nombreArchivo, 'exito');
+          } catch (e) {
+            mostrarToast('No se pudo preparar la descarga: ' + e.message, 'error');
+          }
+          btn.disabled = false;
+          btn.textContent = '📊 Exportar a Excel';
+        })
+        .withFailureHandler(function(err){
+          mostrarToast(err.message || 'No se pudo generar el archivo.', 'error');
+          btn.disabled = false;
+          btn.textContent = '📊 Exportar a Excel';
+        })
+        .exportarResumenPedidosExcel();
+    }
+
+    // ── PLAN B: plantilla ───────────────────────────────────────────────
+    function descargarPlantilla(formato){
+      const esExcel = formato === 'excel';
+      const btn = document.getElementById(esExcel ? 'btnPlantillaExcel' : 'btnPlantillaCsv');
+      const textoOriginal = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Generando…';
+
+      const ejecutor = google.script.run
+        .withSuccessHandler(function(resultado){
+          try {
+            descargarBase64(resultado);
+            mostrarToast('Plantilla descargada: ' + resultado.nombreArchivo, 'exito');
+          } catch (e) {
+            mostrarToast('No se pudo preparar la descarga: ' + e.message, 'error');
+          }
+          btn.disabled = false;
+          btn.textContent = textoOriginal;
+        })
+        .withFailureHandler(function(err){
+          mostrarToast(err.message || 'No se pudo generar la plantilla.', 'error');
+          btn.disabled = false;
+          btn.textContent = textoOriginal;
+        });
+
+      if (esExcel) ejecutor.generarPlantillaCargueExcel();
+      else ejecutor.generarPlantillaCargueCSV();
+    }
+
+    // ── PLAN B: cargue masivo ───────────────────────────────────────────
+    function archivoSeleccionado(){
+      const input = document.getElementById('archivoCargue');
+      const etiqueta = document.getElementById('nombreArchivo');
+      const btnValidar = document.getElementById('btnValidar');
+      const btnConfirmar = document.getElementById('btnConfirmar');
+
+      // Cada archivo nuevo invalida la revisión anterior: no se puede
+      // confirmar un cargue con el reporte de otro archivo.
+      textoArchivoCargue = '';
+      ultimaValidacion = null;
+      btnConfirmar.disabled = true;
+      document.getElementById('opcionOmitir').classList.add('oculto');
+      document.getElementById('chkOmitir').checked = false;
+      document.getElementById('reporteCargue').innerHTML = '';
+
+      if (!input.files || !input.files.length) {
+        etiqueta.textContent = '';
+        btnValidar.disabled = true;
+        return;
+      }
+
+      const archivo = input.files[0];
+      nombreArchivoCargue = archivo.name;
+      etiqueta.textContent = archivo.name + ' · ' + Math.round(archivo.size / 1024) + ' KB';
+
+      const lector = new FileReader();
+      lector.onload = function(){
+        textoArchivoCargue = lector.result || '';
+        btnValidar.disabled = false;
+        mostrarToast('Archivo leído. Ahora revísalo antes de cargarlo.', 'exito');
+      };
+      lector.onerror = function(){
+        etiqueta.textContent = '';
+        btnValidar.disabled = true;
+        mostrarToast('No se pudo leer el archivo.', 'error');
+      };
+      // Se lee como UTF-8; por eso la plantilla se entrega con BOM y se pide
+      // guardar desde Excel como "CSV UTF-8": si no, las tildes llegan mal.
+      lector.readAsText(archivo, 'UTF-8');
+    }
+
+    function validarArchivo(){
+      if (!textoArchivoCargue) {
+        mostrarToast('Primero selecciona un archivo CSV.', 'error');
+        return;
+      }
+      const btn = document.getElementById('btnValidar');
+      btn.disabled = true;
+      btn.textContent = 'Revisando…';
+      document.getElementById('reporteCargue').innerHTML = '<p class="estado">Revisando el archivo…</p>';
+
+      google.script.run
+        .withSuccessHandler(function(reporte){
+          ultimaValidacion = reporte;
+          pintarReporte(reporte);
+          btn.disabled = false;
+          btn.textContent = '🔍 Revisar archivo';
+
+          const hayErrores = reporte.filasConError > 0;
+          document.getElementById('opcionOmitir').classList.toggle('oculto', !hayErrores);
+          // Solo tiene sentido confirmar si hay algo nuevo por escribir.
+          document.getElementById('btnConfirmar').disabled = reporte.solicitudesNuevas === 0;
+        })
+        .withFailureHandler(function(err){
+          ultimaValidacion = null;
+          document.getElementById('reporteCargue').innerHTML =
+            '<p class="reporte-error">' + escapar(err.message || err) + '</p>';
+          btn.disabled = false;
+          btn.textContent = '🔍 Revisar archivo';
+          document.getElementById('btnConfirmar').disabled = true;
+        })
+        .validarCargueMasivo(textoArchivoCargue, nombreArchivoCargue);
+    }
+
+    function confirmarArchivo(){
+      if (!ultimaValidacion) {
+        mostrarToast('Revisa el archivo antes de confirmar el cargue.', 'error');
+        return;
+      }
+
+      const omitir = document.getElementById('chkOmitir').checked;
+      const resumen = ultimaValidacion.solicitudesNuevas + ' solicitud(es) y ' +
+        ultimaValidacion.ejemplaresInsertados + ' ejemplar(es)';
+      const advertencia = (ultimaValidacion.filasConError > 0 && omitir)
+        ? '\n\nSe ignorarán ' + ultimaValidacion.filasConError + ' fila(s) con errores.'
+        : '';
+
+      if (!window.confirm('Se van a registrar ' + resumen + ' en la hoja de solicitudes.' + advertencia + '\n\n¿Confirmas el cargue?')) {
+        return;
+      }
+
+      const btn = document.getElementById('btnConfirmar');
+      btn.disabled = true;
+      btn.textContent = 'Cargando…';
+
+      google.script.run
+        .withSuccessHandler(function(reporte){
+          pintarReporte(reporte);
+          btn.textContent = '✔ Confirmar cargue';
+          // Tras un cargue exitoso, el archivo ya entró: se limpia para
+          // evitar que alguien vuelva a pulsar confirmar por inercia.
+          if (reporte.escrito) {
+            mostrarToast('Cargue realizado: ' + reporte.filasEscritas + ' fila(s) registradas.', 'exito');
+            document.getElementById('archivoCargue').value = '';
+            document.getElementById('nombreArchivo').textContent = '';
+            textoArchivoCargue = '';
+            ultimaValidacion = null;
+            document.getElementById('btnValidar').disabled = true;
+            btn.disabled = true;
+            cargarPanel();
+          } else {
+            mostrarToast(reporte.mensaje || 'No se escribió nada.', 'error');
+            btn.disabled = false;
+          }
+        })
+        .withFailureHandler(function(err){
+          mostrarToast(err.message || 'No se pudo completar el cargue.', 'error');
+          btn.disabled = false;
+          btn.textContent = '✔ Confirmar cargue';
+        })
+        .confirmarCargueMasivo(textoArchivoCargue, nombreArchivoCargue, omitir);
+    }
+
+    function pintarReporte(reporte){
+      const contenedor = document.getElementById('reporteCargue');
+
+      let encabezado;
+      if (reporte.escrito) {
+        encabezado = '<p class="reporte-ok">✔ Cargue realizado: ' + reporte.filasEscritas +
+          ' fila(s) registradas en ' + reporte.insertadas.length + ' solicitud(es).</p>';
+      } else if (reporte.soloValidar) {
+        encabezado = reporte.filasConError > 0
+          ? '<p class="reporte-alerta">⚠ Revisión terminada: hay filas con errores. No se ha guardado nada todavía.</p>'
+          : '<p class="reporte-ok">✔ Revisión terminada: el archivo está correcto. No se ha guardado nada todavía.</p>';
+      } else {
+        encabezado = '<p class="reporte-alerta">' + escapar(reporte.mensaje || 'No se escribió nada.') + '</p>';
+      }
+
+      let html = encabezado +
+        '<div class="reporte-numeros">' +
+          '<div><strong>' + reporte.filasLeidas + '</strong>filas leídas</div>' +
+          '<div><strong>' + reporte.filasValidas + '</strong>filas correctas</div>' +
+          '<div><strong>' + reporte.filasConError + '</strong>filas con error</div>' +
+          '<div><strong>' + reporte.solicitudesNuevas + '</strong>solicitudes nuevas</div>' +
+          '<div><strong>' + reporte.solicitudesOmitidas + '</strong>ya registradas</div>' +
+          '<div><strong>' + formatearPrecio(reporte.valorTotal) + '</strong>valor estimado</div>' +
+        '</div>';
+
+      if (reporte.filasIgnoradasEjemplo) {
+        html += '<p style="font-size:12.5px; color:var(--texto-suave);">Se ignoró la fila de EJEMPLO de la plantilla.</p>';
+      }
+      if (reporte.solicitudesOmitidas > 0) {
+        html += '<p style="font-size:12.5px; color:var(--texto-suave);">' +
+          reporte.solicitudesOmitidas + ' solicitud(es) del archivo ya estaban registradas y no se volverán a cargar.</p>';
+      }
+      if (reporte.avisoCorreo) {
+        html += '<p class="reporte-alerta">' + escapar(reporte.avisoCorreo) + '</p>';
+      }
+
+      if (reporte.errores && reporte.errores.length) {
+        html += '<div class="lista-errores-scroll"><table class="tabla-errores">' +
+          '<thead><tr><th>Fila</th><th>Título</th><th>Qué corregir</th></tr></thead><tbody>' +
+          reporte.errores.map(function(e){
+            return '<tr><td class="fila-num">' + escapar(e.fila) + '</td><td>' +
+              (escapar(e.titulo) || '<span style="color:var(--texto-suave);">—</span>') +
+              '</td><td>' + escapar(e.mensaje) + '</td></tr>';
+          }).join('') +
+          '</tbody></table></div>';
+        if (reporte.erroresTruncados) {
+          html += '<p class="reporte-alerta">Se muestran solo los primeros ' + reporte.errores.length +
+            ' errores. Corrígelos y vuelve a revisar el archivo para ver los demás.</p>';
+        }
+      }
+
+      contenedor.innerHTML = html;
+    }
+
+    // ── Libros deseados ─────────────────────────────────────────────────
+    function cargarDeseos(){
+      document.getElementById('resultadosDeseos').innerHTML = '<p class="estado">Cargando…</p>';
+      google.script.run
+        .withSuccessHandler(pintarDeseos)
+        .withFailureHandler(function(err){
+          document.getElementById('resultadosDeseos').innerHTML =
+            '<p class="estado">' + escapar(err.message || err) + '</p>';
+        })
+        .obtenerListaDeseos();
+    }
+
+    function pintarDeseos(lista){
+      const contenedor = document.getElementById('resultadosDeseos');
+
+      if (!lista || lista.length === 0) {
+        contenedor.innerHTML = '<p class="estado">Todavía no hay solicitudes especiales de libros fuera de catálogo.</p>';
+        return;
+      }
+
+      contenedor.innerHTML = lista.map(function(d, indice){
+        const conseguido = d.estado === 'Conseguido';
+        const claseCard = conseguido ? 'deseo-card conseguido' : 'deseo-card';
+        const claseEstado = conseguido ? 'solicitud-estado completado' : 'solicitud-estado';
+        const contexto = [d.tipoUsuario, d.facultad, d.programa, d.asignatura].filter(Boolean).join(' · ');
+        const demora = Math.min(indice, 9) * 35;
+
+        const botonConseguido = !conseguido
+          ? '<button class="btn-mini" onclick="marcarDeseoConseguido(\'' + escapar(d.idDeseo) + '\', this)">Marcar como conseguido</button>'
+          : '';
+
+        return (
+          '<div class="' + claseCard + '" style="animation-delay:' + demora + 'ms;">' +
+            '<div class="solicitud-cabecera">' +
+              '<span class="solicitud-id">' + escapar(d.idDeseo) + ' · ' + escapar(d.sede) + '</span>' +
+              '<span class="' + claseEstado + '">' + escapar(d.estado) + '</span>' +
+            '</div>' +
+            '<p class="deseo-titulo">' + escapar(d.tituloDeseado) + '</p>' +
+            (d.autorDeseado ? '<p class="deseo-autor">' + escapar(d.autorDeseado) + '</p>' : '') +
+            ((d.isbnDeseado || d.proveedorDeseado || d.cantidad) ? '<p class="deseo-autor">' +
+              [d.isbnDeseado ? 'ISBN: ' + escapar(d.isbnDeseado) : '', d.proveedorDeseado ? 'Proveedor sugerido: ' + escapar(d.proveedorDeseado) : '',
+               d.cantidad ? 'Ejemplares sugeridos: ' + escapar(d.cantidad) : '']
+                .filter(Boolean).join(' · ') + '</p>' : '') +
+            (d.comentario ? '<p class="deseo-comentario">' + escapar(d.comentario) + '</p>' : '') +
+            '<p class="solicitud-persona"><b>' + escapar(d.nombre) + '</b> (' + escapar(d.documento) + ') · ' + escapar(d.email) +
+              (contexto ? '<br>' + escapar(contexto) : '') + '</p>' +
+            '<div class="solicitud-pie">' +
+              '<span>' + formatearFecha(d.fecha) + '</span>' +
+              botonConseguido +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    function marcarDeseoConseguido(idDeseo, boton){
+      boton.disabled = true;
+      boton.textContent = 'Actualizando…';
+      google.script.run
+        .withSuccessHandler(function(){ cargarDeseos(); })
+        .withFailureHandler(function(err){
+          mostrarToast(err.message || 'No se pudo actualizar el estado.', 'error');
+          boton.disabled = false;
+          boton.textContent = 'Marcar como conseguido';
+        })
+        .actualizarEstadoDeseo(idDeseo, 'Conseguido');
+    }
+
+  </script>
+</body>
+</html>

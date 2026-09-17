@@ -64,6 +64,32 @@ Este documento describe la estructura conceptual observada en el código. Los da
 | 16 | ID |
 | 17 | Estado |
 
+## Variante de Bogotá: hoja Pedidos
+
+El sistema de Bogotá (`bogota/`) usa el mismo esquema con **una columna
+adicional**:
+
+| Columna | Campo | Valores |
+|---|---|---|
+| 19 | Origen | `Web` · `Cargue masivo` |
+
+Distingue lo registrado en línea desde el buscador de lo que entró por la
+plantilla de contingencia. Existe únicamente porque el cargue masivo la
+necesita; ver `docs/bogota-cargue-masivo.md`.
+
+Las hojas `IndiceGlobal` y `LibrosDeseados` son idénticas en las dos
+instalaciones.
+
+## Plantilla de cargue masivo (solo Bogotá)
+
+No es una hoja del sistema: es el archivo que el personal descarga, llena sin
+conexión y vuelve a subir. Sus columnas son las de `Pedidos` sin `Estado` ni
+`Origen` (los pone el sistema), más una columna de apoyo:
+
+| Columna | Campo | Notas |
+|---|---|---|
+| 17 | Grupo Solicitud | Agrupa varias filas en una sola solicitud |
+
 ## Datos demo
 
 El repositorio debe utilizar datos ficticios para pruebas. Nunca copiar registros de producción.

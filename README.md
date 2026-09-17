@@ -25,6 +25,30 @@ Incluye los 2 archivos disponibles actualmente:
 
 **Falta el tercer archivo de la aplicación**, que debe incorporarse cuando esté disponible (en el código actual el punto de entrada espera también una vista llamada `Index`).
 
+## Sistemas incluidos
+
+El repositorio documenta **dos instalaciones** del mismo núcleo funcional. Cada
+una es un proyecto de Apps Script independiente (hoja de cálculo, implementación
+web y Script Properties propias).
+
+| Sistema | Archivos | Particularidades |
+|---|---|---|
+| Valledupar (base) | `Código.gs`, `Biblioteca.html` | Implementación original |
+| Bogotá | `bogota/` | 16–20 proveedores · página puente de QR · plan B de contingencia |
+
+El sistema de Bogotá conserva la misma estructura y metodología, y agrega:
+
+1. **Página puente para códigos QR** (`bogota/Abrir.html`), para cuando el QR se
+   escanea desde el navegador interno de otra app.
+   → `docs/bogota-qr-safari.md`
+2. **Plantilla descargable (CSV/Excel) y cargue masivo**, como plan B ante una
+   caída de internet durante la jornada.
+   → `docs/bogota-cargue-masivo.md`
+3. **Columna `Origen`** en la hoja `Pedidos` (única diferencia de esquema).
+4. **Hoja "Por Proveedor"** en el Excel de resumen.
+
+Ver `bogota/README.md` para la instalación de esa variante.
+
 ## Arquitectura funcional
 
 ```text

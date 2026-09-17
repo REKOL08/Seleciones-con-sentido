@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <!--
+    PÁGINA PUENTE DE LOS CÓDIGOS QR · Selecciones con Sentido · Bogotá
+
+    Problema que resuelve
+    ─────────────────────
+    Cuando alguien escanea el QR desde la cámara nativa de iOS, el enlace se
+    abre en Safari y todo funciona. Pero si lo escanea desde el lector que
+    traen por dentro Instagram, Facebook o WhatsApp, el enlace se abre en el
+    navegador interno de esa app (un WebView), y ahí los inicios de sesión de
+    Google fallan: Google bloquea el acceso desde navegadores embebidos.
+    La persona ve un error y abandona el formulario.
+
+    Qué hace esta página
+    ────────────────────
+    1. Detecta (en el cliente, con el User-Agent) si venimos de un navegador
+       interno de otra app.
+    2. Si NO es un navegador interno, sigue de largo al buscador.
+    3. Si SÍ lo es, muestra instrucciones para abrir el sistema en Safari
+       (iOS) o en el navegador del sistema (Android), con un botón que lo
+       intenta automáticamente y un enlace para copiar y pegar como respaldo.
+
+    LÍMITES CONOCIDOS — leer antes de confiar ciegamente en esto
+    ───────────────────────────────────────────────────────────
+    · La detección es HEURÍSTICA: se basa en el User-Agent, que las apps
+      cambian sin avisar. Puede haber falsos positivos y falsos negativos.
+      Por eso la página nunca bloquea a nadie: siempre deja un botón para
+      continuar igual.
+    · El esquema "x-safari-https://" que usa el botón en iOS NO es una API
+      pública documentada por Apple: es un truco conocido que puede dejar de
+      funcionar en cualquier versión de iOS. HAY QUE PROBARLO en un iPhone
+      real antes de imprimir los QR, y el respaldo manual ("Abrir en Safari"
+      desde el menú de la app) debe quedar siempre visible.
+    · En Android se usa el esquema "intent://" con browser_fallback_url, que
+      sí está documentado por Android, pero depende de qué navegador tenga
+      instalado la persona.
+  -->
+  <style>
+    :root{
+      --color-institucional: #7fb536;
+      --color-acento: #F59C2F;
+      --paper: #F2ECDD;
+      --paper-dark: #E7DFC9;
+      --card: #FBF8F2;
+      --linea: #D8CFB4;
+      --texto: #000000;
+      --texto-suave: #606060;
+    }
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; padding:0; }
+    body{
+      background:var(--paper); color:var(--texto);
+      font-family:'Inter', sans-serif; min-height:100vh;
+      display:flex; align-items:center; justify-content:center; padding:24px 16px;
+    }
+    @keyframes entradaSuave{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+    }
+
+    .tarjeta{
+      max-width:460px; width:100%; background:var(--card);
+      border:1px solid var(--linea); border-radius:4px; padding:28px 24px;
+      box-shadow:0 14px 30px -18px rgba(0,0,0,.45);
+      animation:entradaSuave .45s ease both; text-align:center;
+    }
+    .logo{ max-width:140px; height:auto; display:block; margin:0 auto 16px; }
+    .eyebrow{
+      font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:.14em;
+      text-transform:uppercase; color:var(--texto-suave); margin:0 0 8px;
+    }
+    h1{ font-family:'Fraunces', serif; font-weight:600; font-size:21px; margin:0 0 10px; }
+    p{ font-size:14px; line-height:1.55; color:var(--texto-suave); margin:0 0 14px; }
+    p.destacado{ color:var(--texto); }
+
+    .pasos{ text-align:left; font-size:13.5px; line-height:1.6; margin:0 0 18px; padding-left:20px; color:var(--texto); }
+    .pasos li{ margin-bottom:6px; }
+    .pasos b{ background:var(--paper-dark); padding:1px 5px; border-radius:2px; }
+
+    button, a.boton{
+      display:block; width:100%; text-align:center; text-decoration:none;
+      font-family:'Inter', sans-serif; font-weight:600; font-size:14.5px;
+      padding:13px 18px; border:none; border-radius:3px; cursor:pointer;
+      margin-bottom:10px; transition:filter .2s ease, transform .2s ease;
+    }
+    .primario{ background:var(--color-institucional); color:#fff; }
+    .primario:hover{ filter:brightness(.94); transform:translateY(-2px); }
+    .secundario{ background:#fff; color:var(--texto); border:1px solid var(--linea); }
+    .secundario:hover{ background:var(--paper-dark); transform:translateY(-2px); }
+    .enlace-simple{
+      display:inline-block; font-size:13px; color:var(--texto-suave);
+      text-decoration:underline; margin-top:4px; cursor:pointer; background:none; border:none; width:auto;
+    }
+
+    .caja-url{
+      font-family:'IBM Plex Mono', monospace; font-size:11.5px; word-break:break-all;
+      background:var(--paper-dark); border-radius:3px; padding:10px 12px; margin:10px 0 14px;
+      color:var(--texto); text-align:left;
+    }
+    #avisoCopiado{ font-size:12.5px; color:var(--color-institucional); min-height:18px; margin:0; }
+    .cargando{ font-family:'Fraunces', serif; font-size:15px; color:var(--texto-suave); }
+    .oculto{ display:none; }
+    .pie{ font-size:11.5px; color:var(--texto-suave); margin-top:18px; border-top:1px solid var(--linea); padding-top:12px; }
+  </style>
+</head>
+<body>
+
+  <div class="tarjeta">
+    <img src="<?!= logoDataUri ?>" alt="" class="logo">
+    <p class="eyebrow">Selecciones con Sentido · Bogotá</p>
+
+    <!-- Vista 1: navegador normal, seguimos de largo -->
+    <div id="vistaContinuando">
+      <h1>Abriendo el sistema…</h1>
+      <p class="cargando">Un momento, por favor.</p>
+      <a class="boton primario" id="enlaceContinuar" href="#" target="_top">Continuar ahora</a>
+    </div>
+
+    <!-- Vista 2: navegador interno de otra app -->
+    <div id="vistaNavegadorInterno" class="oculto">
+      <h1>Abre esta página en tu navegador</h1>
+      <p class="destacado" id="textoMotivo">
+        Estás viendo esta página dentro de otra aplicación. Para que el formulario
+        funcione correctamente, ábrela en el navegador de tu teléfono.
+      </p>
+
+      <button class="primario" id="btnAbrirNavegador">Abrir en el navegador</button>
+
+      <ol class="pasos" id="pasosManual"></ol>
+
+      <div class="caja-url" id="cajaUrl"></div>
+      <button class="secundario" id="btnCopiar">Copiar enlace</button>
+      <p id="avisoCopiado" role="status"></p>
+
+      <button class="enlace-simple" id="btnContinuarIgual">Continuar aquí de todos modos</button>
+    </div>
+
+    <p class="pie">Si algo no funciona, acércate al punto de la biblioteca y con gusto te ayudamos.</p>
+  </div>
+
+  <script>
+    // La URL del buscador la inyecta doGet() desde el servidor. Se limpia el
+    // parámetro ?qr=1 para que el destino sea el buscador y no esta misma
+    // página (si no, quien llegue aquí quedaría dando vueltas en un bucle).
+    var URL_DESTINO = (function () {
+      // Se imprime sin escapar (<?!=) porque JSON.stringify ya produce un
+      // literal de JavaScript válido; el reemplazo de "<" evita que un valor
+      // inesperado pueda cerrar esta etiqueta <script>.
+      var bruta = <?!= JSON.stringify(urlApp).replace(/</g, '\\u003c') ?>;
+      if (!bruta) return '';
+      return bruta.split('?')[0];
+    })();
+
+    var ua = navigator.userAgent || '';
+
+    var esIOS = /iPad|iPhone|iPod/.test(ua) ||
+                // iPadOS 13+ se presenta como Mac; se distingue por el táctil.
+                (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1);
+    var esAndroid = /Android/.test(ua);
+
+    // Navegadores de verdad que en iOS NO son WebViews embebidos: si vemos
+    // uno de estos, no molestamos a la persona con el intersticial.
+    var esNavegadorRealIOS = /CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/.test(ua);
+
+    // Marcas de navegador interno de otra app. Es una lista heurística: las
+    // apps cambian su User-Agent sin avisar, así que puede quedar corta.
+    var marcasInApp = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Line\/|MicroMessenger|WhatsApp|Twitter|LinkedInApp|Snapchat|TikTok|Pinterest|GSA\//i;
+
+    function detectarNavegadorInterno() {
+      if (marcasInApp.test(ua)) return true;
+      // En iOS, Safari siempre anuncia "Safari/" en su User-Agent; los
+      // WebViews embebidos normalmente no lo hacen. Es una pista, no una
+      // certeza: por eso solo se usa cuando ya descartamos los navegadores
+      // alternativos conocidos.
+      if (esIOS && !esNavegadorRealIOS && ua.indexOf('Safari/') === -1) return true;
+      return false;
+    }
+
+    // Navegar el marco superior. La app corre dentro de un iframe de Apps
+    // Script, así que una asignación directa a window.top.location puede ser
+    // bloqueada por el navegador; window.open(url, '_top') es el respaldo.
+    function irA(url) {
+      if (!url) return;
+      try {
+        window.top.location.href = url;
+      } catch (err) {
+        window.open(url, '_top');
+      }
+    }
+
+    function mostrarVistaInterna() {
+      document.getElementById('vistaContinuando').classList.add('oculto');
+      document.getElementById('vistaNavegadorInterno').classList.remove('oculto');
+      document.getElementById('cajaUrl').textContent = URL_DESTINO;
+
+      var pasos = document.getElementById('pasosManual');
+      var botonAbrir = document.getElementById('btnAbrirNavegador');
+
+      if (esIOS) {
+        botonAbrir.textContent = 'Abrir en Safari';
+        pasos.innerHTML =
+          '<li>Si el botón no hace nada, toca el menú de la app (<b>···</b> o <b>⋮</b>, normalmente arriba a la derecha).</li>' +
+          '<li>Elige <b>Abrir en Safari</b> o <b>Abrir en el navegador</b>.</li>' +
+          '<li>Si tampoco aparece esa opción, copia el enlace de abajo y pégalo en Safari.</li>';
+      } else if (esAndroid) {
+        botonAbrir.textContent = 'Abrir en el navegador';
+        pasos.innerHTML =
+          '<li>Si el botón no hace nada, toca el menú de la app (<b>⋮</b>).</li>' +
+          '<li>Elige <b>Abrir en Chrome</b> o <b>Abrir en el navegador</b>.</li>' +
+          '<li>Si tampoco aparece esa opción, copia el enlace de abajo y pégalo en el navegador.</li>';
+      } else {
+        botonAbrir.textContent = 'Abrir en el navegador';
+        pasos.innerHTML =
+          '<li>Copia el enlace de abajo.</li>' +
+          '<li>Pégalo en la barra de direcciones de tu navegador.</li>';
+      }
+    }
+
+    // Intento de salto al navegador del sistema.
+    //
+    // iOS: "x-safari-https://…" es un esquema NO documentado por Apple. Se
+    // intenta porque funciona en muchas versiones, pero puede no hacer nada;
+    // por eso los pasos manuales quedan siempre visibles en pantalla.
+    //
+    // Android: "intent://…#Intent;scheme=https;…;end" sí es un mecanismo
+    // documentado, e incluye browser_fallback_url por si no hay app que lo
+    // atienda.
+    function intentarAbrirEnNavegador() {
+      if (!URL_DESTINO) return;
+
+      if (esIOS) {
+        window.location.href = URL_DESTINO.replace(/^https:\/\//, 'x-safari-https://');
+        return;
+      }
+
+      if (esAndroid) {
+        var sinEsquema = URL_DESTINO.replace(/^https?:\/\//, '');
+        window.location.href = 'intent://' + sinEsquema +
+          '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+          'S.browser_fallback_url=' + encodeURIComponent(URL_DESTINO) + ';end';
+        return;
+      }
+
+      irA(URL_DESTINO);
+    }
+
+    function copiarEnlace() {
+      var aviso = document.getElementById('avisoCopiado');
+      function exito() { aviso.textContent = '✓ Enlace copiado. Pégalo en tu navegador.'; }
+      function falla() { aviso.textContent = 'No se pudo copiar automáticamente. Mantén presionado el enlace de arriba para copiarlo.'; }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(URL_DESTINO).then(exito).catch(falla);
+        return;
+      }
+      // Respaldo para navegadores sin API de portapapeles.
+      try {
+        var campo = document.createElement('textarea');
+        campo.value = URL_DESTINO;
+        campo.setAttribute('readonly', '');
+        campo.style.position = 'absolute';
+        campo.style.left = '-9999px';
+        document.body.appendChild(campo);
+        campo.select();
+        var copiado = document.execCommand('copy');
+        document.body.removeChild(campo);
+        copiado ? exito() : falla();
+      } catch (err) {
+        falla();
+      }
+    }
+
+    document.getElementById('btnAbrirNavegador').addEventListener('click', intentarAbrirEnNavegador);
+    document.getElementById('btnCopiar').addEventListener('click', copiarEnlace);
+    document.getElementById('btnContinuarIgual').addEventListener('click', function () { irA(URL_DESTINO); });
+
+    (function iniciar() {
+      var enlace = document.getElementById('enlaceContinuar');
+      if (URL_DESTINO) enlace.setAttribute('href', URL_DESTINO);
+
+      if (!URL_DESTINO) {
+        // Sin URL de destino no hay nada que hacer: se avisa en vez de dejar
+        // una pantalla de "cargando" eterna.
+        document.getElementById('vistaContinuando').innerHTML =
+          '<h1>No pudimos abrir el sistema</h1>' +
+          '<p>Falta configurar la dirección de la aplicación. Avísale al personal de la biblioteca.</p>';
+        return;
+      }
+
+      if (detectarNavegadorInterno()) {
+        mostrarVistaInterna();
+        return;
+      }
+
+      // Navegador normal: seguimos al buscador. El salto automático puede
+      // ser bloqueado por el navegador si no hubo un toque previo, así que
+      // el botón "Continuar ahora" queda visible como respaldo.
+      irA(URL_DESTINO);
+    })();
+  </script>
+</body>
+</html>
