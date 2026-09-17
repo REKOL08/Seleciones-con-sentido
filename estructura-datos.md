@@ -64,6 +64,15 @@ Este documento describe la estructura conceptual observada en el código. Los da
 | 16 | ID |
 | 17 | Estado |
 
+## Variante de Bogotá: catálogo flexible
+
+En Bogotá el catálogo **no exige este orden de columnas**: se identifica cada
+campo por el nombre del encabezado, de modo que el archivo del que se parta
+puede tener sus columnas en cualquier orden, traer columnas de más o no traer
+algunas. Solo `Titulo` y `Proveedor` son obligatorias.
+
+Ver `docs/bogota-catalogo.md` para la lista de encabezados reconocidos.
+
 ## Variante de Bogotá: hoja Pedidos
 
 El sistema de Bogotá (`bogota/`) usa el mismo esquema con **una columna

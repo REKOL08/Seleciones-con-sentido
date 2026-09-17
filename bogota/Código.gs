@@ -44,6 +44,14 @@ const REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PROVEEDORES_ESPERADOS_MIN = 16;
 const PROVEEDORES_ESPERADOS_MAX = 20;
 
+// Mínimo de títulos que debe tener una temática para aparecer en el filtro.
+// Los catálogos consolidados de varios proveedores traen miles de temáticas
+// distintas (muchas usadas una sola vez), y una lista desplegable con miles de
+// opciones es inservible. El filtro muestra las temáticas con peso real y el
+// resto se sigue encontrando por el buscador de texto, que también busca
+// dentro de categoría y programa. Poner 1 muestra todas.
+const TEMATICA_MIN_TITULOS = 10;
+
 // Clave compartida para entrar al Panel de Biblioteca (Biblioteca.html).
 // No es autenticación real (cualquiera con la URL exacta y la clave puede
 // entrar), solo evita que un usuario normal llegue ahí por error.
@@ -204,7 +212,7 @@ function validarClaveBiblioteca(clave) {
 // segundos. Si algo falla al leer o guardar la caché, se sigue leyendo la
 // hoja directamente sin romper la búsqueda.
 // ────────────────────────────────────────────────────────────────────────
-const CATALOGO_CACHE_PREFIJO = 'catalogo_bog_v1_';
+const CATALOGO_CACHE_PREFIJO = 'catalogo_bog_v2_';
 const CATALOGO_CACHE_TTL = 1800; // 30 minutos (máximo permitido: 21600 = 6h)
 const CATALOGO_CACHE_TAM_CHUNK = 90000; // CacheService limita cada valor a 100KB; dejamos margen
 
@@ -218,6 +226,84 @@ function leerCatalogo_() {
   return libros;
 }
 
+// Campos del catálogo y los encabezados que los identifican, en orden de
+// preferencia. El catálogo se mapea por NOMBRE de encabezado, no por posición:
+// así el mismo código sirve para archivos con las columnas en distinto orden,
+// y reordenar una columna deja de cambiar los datos en silencio.
+//
+// Sobre "categoria" y "programa": son las dos columnas temáticas, de lo más
+// general a lo más específico. En un archivo con columnas ÁREA y CATEGORIA,
+// ÁREA es la general (→ categoria) y CATEGORIA la específica (→ programa);
+// en uno con Categoria y Programa, cada una va a la suya. Por eso "categoria"
+// prefiere ÁREA y "programa" se queda con CATEGORIA si sobró.
+const CAMPOS_CATALOGO = [
+  { campo: 'proveedor',     alias: ['proveedor', 'distribuidor'] },
+  { campo: 'sede',          alias: ['sede'] },
+  { campo: 'titulo',        alias: ['titulo', 'nombredellibro'] },
+  { campo: 'autor',         alias: ['autor', 'autores'] },
+  { campo: 'editorial',     alias: ['editorial', 'sello'] },
+  { campo: 'precio',        alias: ['precio', 'preciounitario', 'valor', 'preciopublico'] },
+  { campo: 'isbn',          alias: ['isbn', 'isbn13'] },
+  { campo: 'anio',          alias: ['ano', 'anio', 'anodeedicion', 'anopublicacion', 'edicion'] },
+  { campo: 'stock',         alias: ['stock', 'existencias', 'cantidad', 'disponibles'] },
+  { campo: 'observaciones', alias: ['observaciones', 'notas', 'comentarios'] },
+  { campo: 'hojaOrigen',    alias: ['hojaorigen', 'origen', 'fuente'] },
+  { campo: 'categoria',     alias: ['area', 'categoria', 'tematica', 'tema'] },
+  { campo: 'programa',      alias: ['programa', 'subcategoria', 'subarea', 'categoria', 'especialidad'] }
+];
+
+// Campos sin los cuales el catálogo no sirve para nada.
+const CAMPOS_CATALOGO_OBLIGATORIOS = ['titulo', 'proveedor'];
+
+// Relaciona cada campo con la columna real del archivo. Una misma columna no
+// puede quedar asignada a dos campos: el primero que la reclama se la queda,
+// y el siguiente pasa a su alias alternativo.
+function mapearColumnasCatalogo_(encabezados) {
+  const normalizados = encabezados.map(normalizarTextoCargue_);
+  const tomadas = {};
+  const indices = {};
+
+  CAMPOS_CATALOGO.forEach(function (definicion) {
+    indices[definicion.campo] = -1;
+    for (let i = 0; i < definicion.alias.length; i++) {
+      const posicion = normalizados.indexOf(definicion.alias[i]);
+      if (posicion !== -1 && !tomadas[posicion]) {
+        indices[definicion.campo] = posicion;
+        tomadas[posicion] = definicion.campo;
+        break;
+      }
+    }
+  });
+
+  const faltantes = CAMPOS_CATALOGO_OBLIGATORIOS.filter(function (campo) {
+    return indices[campo] === -1;
+  });
+
+  return { indices: indices, faltantes: faltantes };
+}
+
+// Limpia un valor del catálogo: espacios sobrantes al inicio y al final, que
+// en los archivos consolidados a mano son frecuentes y hacen que 'EDUCACIÓN '
+// y 'EDUCACIÓN' se cuenten como dos temáticas distintas en los filtros.
+function limpiarValorCatalogo_(valor) {
+  if (valor === null || valor === undefined) return '';
+  if (valor instanceof Date) return valor;
+  if (typeof valor === 'number') return valor;
+  return String(valor).trim();
+}
+
+// El ISBN suele venir como número cuando el archivo se armó en Excel. Se pasa
+// a texto para poder buscarlo tal como la persona lo escribe.
+function limpiarIsbnCatalogo_(valor) {
+  if (valor === null || valor === undefined) return '';
+  if (typeof valor === 'number') {
+    // Los ISBN son enteros de 13 dígitos o menos, así que String() los imprime
+    // completos, sin notación científica.
+    return String(Math.round(valor));
+  }
+  return String(valor).trim();
+}
+
 function leerCatalogoDesdeHoja_() {
   const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOMBRE_HOJA_CATALOGO);
 
@@ -226,23 +312,42 @@ function leerCatalogoDesdeHoja_() {
   }
 
   const valores = hoja.getDataRange().getValues();
-  const filas = valores.slice(1); // saltamos la fila de encabezados
+  if (valores.length < 2) return [];
 
-  return filas
+  const mapeo = mapearColumnasCatalogo_(valores[0]);
+  if (mapeo.faltantes.length) {
+    throw new Error(
+      "A la pestaña '" + NOMBRE_HOJA_CATALOGO + "' le faltan columnas obligatorias: " +
+      mapeo.faltantes.join(', ') + ". Revisa la fila de encabezados y vuelve a intentar " +
+      "(ejecuta configurarSistema() para ver el detalle)."
+    );
+  }
+
+  const indices = mapeo.indices;
+  const leer = function (fila, campo) {
+    const posicion = indices[campo];
+    if (posicion === -1 || posicion >= fila.length) return '';
+    return limpiarValorCatalogo_(fila[posicion]);
+  };
+
+  return valores.slice(1) // saltamos la fila de encabezados
     .map(function (fila) {
       return {
-        proveedor: fila[0],
-        sede: fila[1],
-        titulo: fila[2],
-        autor: fila[3],
-        editorial: fila[4],
-        categoria: fila[5],
-        programa: fila[6],
-        precio: fila[7],
-        isbn: fila[8],
-        stock: fila[9],
-        observaciones: fila[10],
-        hojaOrigen: fila[11]
+        proveedor: leer(fila, 'proveedor'),
+        // Si el archivo no trae columna de sede, se asume la ciudad de esta
+        // instalación: el filtro de sede simplemente deja de aportar.
+        sede: leer(fila, 'sede') || CIUDAD,
+        titulo: leer(fila, 'titulo'),
+        autor: leer(fila, 'autor'),
+        editorial: leer(fila, 'editorial'),
+        categoria: leer(fila, 'categoria'),
+        programa: leer(fila, 'programa'),
+        precio: leer(fila, 'precio'),
+        isbn: limpiarIsbnCatalogo_(indices.isbn === -1 ? '' : fila[indices.isbn]),
+        anio: leer(fila, 'anio'),
+        stock: leer(fila, 'stock'),
+        observaciones: leer(fila, 'observaciones'),
+        hojaOrigen: leer(fila, 'hojaOrigen')
       };
     })
     .filter(function (libro) { return libro.titulo; }); // descarta filas vacías
@@ -378,11 +483,27 @@ function getFacetsData() {
   // Unimos Categoria + Programa: ambas columnas describen el tema del libro
   // (ej. Categoria="Educación", Programa="Neuroeducación"), así que la
   // Temática debe mostrar y filtrar por cualquiera de las dos.
-  const categoriasSet = new Set();
+  //
+  // Se cuenta cuántos títulos tiene cada temática y se dejan fuera del filtro
+  // las que no llegan a TEMATICA_MIN_TITULOS. En un catálogo consolidado eso
+  // es la diferencia entre una lista usable y uno de varios miles de opciones
+  // donde no se encuentra nada. Lo excluido sigue siendo accesible desde el
+  // buscador de texto.
+  const conteoCategorias = {};
   libros.forEach(function (l) {
-    if (l.categoria) categoriasSet.add(l.categoria);
-    if (l.programa) categoriasSet.add(l.programa);
+    const vistas = {};
+    [l.categoria, l.programa].forEach(function (valor) {
+      const nombre = (valor || '').toString().trim();
+      if (!nombre || vistas[nombre]) return; // sin contar dos veces la misma fila
+      vistas[nombre] = true;
+      conteoCategorias[nombre] = (conteoCategorias[nombre] || 0) + 1;
+    });
   });
+
+  const todasLasCategorias = Object.keys(conteoCategorias);
+  const categoriasFiltradas = todasLasCategorias
+    .filter(function (nombre) { return conteoCategorias[nombre] >= TEMATICA_MIN_TITULOS; })
+    .sort();
 
   let avisoProveedores = '';
   if (proveedores.length && proveedores.length < PROVEEDORES_ESPERADOS_MIN) {
@@ -399,7 +520,15 @@ function getFacetsData() {
     proveedoresConConteo: proveedores.map(function (nombre) {
       return { proveedor: nombre, titulos: conteoProveedores[nombre] };
     }),
-    categorias: Array.from(categoriasSet).sort(),
+    categorias: categoriasFiltradas,
+    categoriasConConteo: categoriasFiltradas.map(function (nombre) {
+      return { categoria: nombre, titulos: conteoCategorias[nombre] };
+    }),
+    // El cliente necesita saber que la lista está recortada, para decirlo en
+    // pantalla en vez de dar a entender que esas son todas las temáticas.
+    totalCategorias: todasLasCategorias.length,
+    categoriasTruncadas: categoriasFiltradas.length < todasLasCategorias.length,
+    tematicaMinTitulos: TEMATICA_MIN_TITULOS,
     totalTitulos: libros.length,
     totalProveedores: proveedores.length,
     avisoProveedores: avisoProveedores
@@ -425,10 +554,45 @@ function obtenerOpcionesFormulario() {
   };
 }
 
+// Pasa un texto a minúsculas y le quita las tildes, para poder comparar
+// "PSICOLOGÍA" con lo que alguien escribe como "psicologia".
+//
+// Por qué un reemplazo carácter por carácter y no String.normalize('NFD'):
+// esta función se ejecuta sobre cada campo de cada título en CADA búsqueda
+// (decenas de miles de llamadas por consulta), y el reemplazo directo es
+// varias veces más rápido. Cubre las vocales acentuadas y la ñ, que es lo que
+// aparece en un catálogo en español.
+//
+// La alternativa sería guardar el texto ya normalizado dentro de la caché del
+// catálogo: las búsquedas quedarían casi instantáneas, pero la caché pasaría a
+// ocupar el doble (de ~12 a ~24 trozos). Si la caché no cabe, se descarta en
+// silencio y cada búsqueda vuelve a leer la hoja completa, que es un problema
+// mucho peor que unos milisegundos de más. Por eso se normaliza al vuelo.
+function sinTildes_(texto) {
+  if (texto === null || texto === undefined) return '';
+  return String(texto).trim().toLowerCase()
+    // Algunas filas traen la tilde como carácter combinante aparte (la "ó" es
+    // entonces "o" + U+0301 en vez de un único carácter). Se ven idénticas en
+    // pantalla, pero no coinciden con el reemplazo de abajo. Son pocas, y esta
+    // línea las cubre.
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[áàäâã]/g, 'a')
+    .replace(/[éèëê]/g, 'e')
+    .replace(/[íìïî]/g, 'i')
+    .replace(/[óòöôõ]/g, 'o')
+    .replace(/[úùüû]/g, 'u')
+    .replace(/ñ/g, 'n')
+    .replace(/ç/g, 'c');
+}
+
 // Búsqueda + filtros + paginación
 function buscarLibros(opts) {
   opts = opts || {};
-  const query = (opts.query || "").toString().trim().toLowerCase();
+  // La consulta se normaliza una sola vez; los campos del catálogo, en el
+  // momento de compararlos. Así "psicologia" encuentra "PSICOLOGÍA", que en un
+  // catálogo escrito en mayúsculas con tildes es la diferencia entre encontrar
+  // 36 títulos o encontrar 827.
+  const query = sinTildes_(opts.query || "");
   const sede = opts.sede || "";
   const proveedor = opts.proveedor || "";
   const categoria = opts.categoria || "";
@@ -442,11 +606,13 @@ function buscarLibros(opts) {
 
   if (query) {
     libros = libros.filter(function (l) {
-      return (l.titulo && l.titulo.toString().toLowerCase().indexOf(query) !== -1) ||
-             (l.autor && l.autor.toString().toLowerCase().indexOf(query) !== -1) ||
-             (l.isbn && l.isbn.toString().toLowerCase().indexOf(query) !== -1) ||
-             (l.categoria && l.categoria.toString().toLowerCase().indexOf(query) !== -1) ||
-             (l.programa && l.programa.toString().toLowerCase().indexOf(query) !== -1);
+      // El ISBN no lleva tildes: se compara directo y se evita normalizarlo.
+      return (l.titulo && sinTildes_(l.titulo).indexOf(query) !== -1) ||
+             (l.autor && sinTildes_(l.autor).indexOf(query) !== -1) ||
+             (l.categoria && sinTildes_(l.categoria).indexOf(query) !== -1) ||
+             (l.programa && sinTildes_(l.programa).indexOf(query) !== -1) ||
+             (l.editorial && sinTildes_(l.editorial).indexOf(query) !== -1) ||
+             (l.isbn && l.isbn.toString().toLowerCase().indexOf(query) !== -1);
     });
   }
 
@@ -1562,16 +1728,7 @@ const PLANTILLA_CARGUE_INSTRUCCIONES = [
 // Quita tildes y pasa a minúsculas, para comparar encabezados sin que un
 // "Título" con tilde deje de reconocerse frente a un "Titulo" sin ella.
 function normalizarTextoCargue_(texto) {
-  let base = (texto === null || texto === undefined) ? '' : String(texto).trim().toLowerCase();
-  try {
-    base = base.normalize('NFD').replace(/[̀-ͯ]/g, '');
-  } catch (err) {
-    // Si el runtime no soportara normalize(), reemplazo manual equivalente.
-    base = base
-      .replace(/[áàäâ]/g, 'a').replace(/[éèëê]/g, 'e').replace(/[íìïî]/g, 'i')
-      .replace(/[óòöô]/g, 'o').replace(/[úùüû]/g, 'u').replace(/ñ/g, 'n');
-  }
-  return base.replace(/[^a-z0-9]/g, '');
+  return sinTildes_(texto).replace(/[^a-z0-9]/g, '');
 }
 
 // Detecta si el archivo usa coma o punto y coma como separador. Excel en
@@ -2172,21 +2329,14 @@ function confirmarCargueMasivo(textoArchivo, nombreArchivo, omitirFilasConError)
 //
 //   · NUNCA toca, reordena ni borra el catálogo. Solo lo lee para revisarlo.
 //   · Crea las pestañas "Pedidos" y "LibrosDeseados" si no existen.
-//   · Revisa que la pestaña del catálogo exista y que sus columnas estén en
-//     el orden que el código espera, e informa exactamente qué corregir.
+//   · Revisa qué columna del archivo quedó asignada a cada campo del sistema
+//     y avisa de los problemas de calidad que afectan la experiencia de uso.
 //
-// Por qué importa el ORDEN de las columnas: leerCatalogoDesdeHoja_() lee por
-// POSICIÓN (fila[0] es Proveedor, fila[1] es Sede, …), no por el nombre del
-// encabezado. Si en el archivo el orden es otro, el sistema mostrará los
-// datos cambiados de lugar (por ejemplo, el autor donde va la editorial) sin
-// dar ningún error. Esta revisión existe para atrapar justamente eso.
+// El catálogo se mapea por NOMBRE de encabezado (ver CAMPOS_CATALOGO), así que
+// el orden de las columnas no importa y sobran solo las que el sistema no usa.
+// Lo que sí importa es que los encabezados se reconozcan: esta revisión existe
+// para confirmarlo antes de una jornada, no después.
 // ────────────────────────────────────────────────────────────────────────
-
-// Orden exacto que espera leerCatalogoDesdeHoja_() en la hoja del catálogo.
-const COLUMNAS_CATALOGO_ESPERADAS = [
-  "Proveedor", "Sede", "Titulo", "Autor", "Editorial", "Categoria",
-  "Programa", "Precio", "ISBN", "Stock", "Observaciones", "HojaOrigen"
-];
 
 function configurarSistema() {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
@@ -2220,56 +2370,120 @@ function configurarSistema() {
     lineas.push("   ✗ Existe pero no tiene filas de datos.");
   } else {
     const totalFilas = hojaCatalogo.getLastRow() - 1;
-    const ancho = Math.max(hojaCatalogo.getLastColumn(), COLUMNAS_CATALOGO_ESPERADAS.length);
-    const encabezado = hojaCatalogo.getRange(1, 1, 1, ancho).getValues()[0];
+    const encabezados = hojaCatalogo.getRange(1, 1, 1, hojaCatalogo.getLastColumn()).getValues()[0];
+    const mapeo = mapearColumnasCatalogo_(encabezados);
 
     lineas.push("   ✓ Existe · " + totalFilas + " fila(s) de datos.");
-    lineas.push("   Revisión del orden de columnas (se lee por posición):");
+    lineas.push("   Columnas del archivo: " + encabezados.map(function (e) {
+      return "'" + String(e === null || e === undefined ? '' : e).trim() + "'";
+    }).join(", "));
+    lineas.push("");
+    lineas.push("   Cómo quedó asignada cada columna:");
 
-    let desajustes = 0;
-    COLUMNAS_CATALOGO_ESPERADAS.forEach(function (esperada, i) {
-      const real = (encabezado[i] === undefined || encabezado[i] === null) ? '' : String(encabezado[i]).trim();
-      const coincide = normalizarTextoCargue_(real) === normalizarTextoCargue_(esperada);
-      if (coincide) {
-        lineas.push("     ✓ Col " + (i + 1) + ": " + esperada);
+    CAMPOS_CATALOGO.forEach(function (definicion) {
+      const posicion = mapeo.indices[definicion.campo];
+      const obligatorio = CAMPOS_CATALOGO_OBLIGATORIOS.indexOf(definicion.campo) !== -1;
+      if (posicion !== -1) {
+        const nombreReal = String(encabezados[posicion] === null || encabezados[posicion] === undefined
+          ? '' : encabezados[posicion]).trim();
+        lineas.push("     ✓ " + definicion.campo + "  ←  columna " + (posicion + 1) + " ('" + nombreReal + "')");
+      } else if (obligatorio) {
+        lineas.push("     ✗ " + definicion.campo + "  ←  NO ENCONTRADA (obligatoria)");
       } else {
-        desajustes++;
-        lineas.push("     ✗ Col " + (i + 1) + ": se esperaba '" + esperada +
-          "' y hay '" + (real || '(vacío)') + "'");
+        lineas.push("     · " + definicion.campo + "  ←  no está en el archivo (se usará un valor por defecto)");
       }
     });
 
-    if (desajustes) {
+    if (mapeo.faltantes.length) {
       reporte.ok = false;
-      reporte.problemas.push("El orden de las columnas del catálogo no coincide en " + desajustes + " posición(es).");
+      reporte.problemas.push("El catálogo no tiene columnas para: " + mapeo.faltantes.join(', ') + ".");
       lineas.push("");
-      lineas.push("   ⚠ IMPORTANTE: el catálogo se lee por POSICIÓN, no por nombre.");
-      lineas.push("     Con las columnas en otro orden, el sistema mostrará datos");
-      lineas.push("     cambiados de lugar SIN dar ningún error.");
-      lineas.push("     Reordena las columnas del catálogo para que queden así:");
-      lineas.push("     " + COLUMNAS_CATALOGO_ESPERADAS.join(" | "));
-    } else {
-      lineas.push("   ✓ Las 12 columnas están en el orden esperado.");
+      lineas.push("   ✗ Faltan columnas obligatorias: " + mapeo.faltantes.join(', '));
+      lineas.push("     Renombra el encabezado correspondiente en el archivo.");
+    }
+
+    // ── Calidad de los datos ──────────────────────────────────────────
+    // Un catálogo puede estar bien mapeado y aun así dar una mala experiencia
+    // (precios en cero, miles de temáticas de una sola fila). Eso se revisa
+    // aquí porque es lo que se nota en plena jornada, no antes.
+    if (!mapeo.faltantes.length) {
+      try {
+        const libros = leerCatalogoDesdeHoja_();
+        lineas.push("");
+        lineas.push("   Calidad de los datos:");
+        lineas.push("     · Títulos leídos: " + libros.length);
+
+        let sinPrecio = 0;
+        const conteoTematicas = {};
+        libros.forEach(function (l) {
+          if (!(Number(l.precio) > 0)) sinPrecio++;
+          [l.categoria, l.programa].forEach(function (v) {
+            const nombre = (v || '').toString().trim();
+            if (nombre) conteoTematicas[nombre] = (conteoTematicas[nombre] || 0) + 1;
+          });
+        });
+
+        const porcentajeSinPrecio = libros.length ? Math.round(100 * sinPrecio / libros.length) : 0;
+        lineas.push("     · Sin precio (0 o vacío): " + sinPrecio + " (" + porcentajeSinPrecio + "%)");
+        if (porcentajeSinPrecio >= 20) {
+          const aviso = "El " + porcentajeSinPrecio + "% de los títulos no tiene precio. " +
+            "El buscador los mostrará como 'Precio por confirmar' y no los sumará al total estimado.";
+          reporte.avisos.push(aviso);
+          lineas.push("       ⚠ " + aviso);
+
+          // Saber si es un proveedor concreto el que no envió precios ahorra
+          // mucho tiempo: se le pide a él la lista, no se revisa todo.
+          const sinPrecioPorProveedor = {};
+          const totalPorProveedor = {};
+          libros.forEach(function (l) {
+            const p = (l.proveedor || '(sin proveedor)').toString().trim() || '(sin proveedor)';
+            totalPorProveedor[p] = (totalPorProveedor[p] || 0) + 1;
+            if (!(Number(l.precio) > 0)) sinPrecioPorProveedor[p] = (sinPrecioPorProveedor[p] || 0) + 1;
+          });
+          Object.keys(totalPorProveedor).forEach(function (p) {
+            const faltan = sinPrecioPorProveedor[p] || 0;
+            if (!faltan) return;
+            lineas.push("         · " + p + ": " + faltan + " de " + totalPorProveedor[p] + " sin precio");
+          });
+        }
+
+        const totalTematicas = Object.keys(conteoTematicas).length;
+        const tematicasEnFiltro = Object.keys(conteoTematicas).filter(function (n) {
+          return conteoTematicas[n] >= TEMATICA_MIN_TITULOS;
+        }).length;
+        lineas.push("     · Temáticas distintas: " + totalTematicas +
+          " · en el filtro (con " + TEMATICA_MIN_TITULOS + "+ títulos): " + tematicasEnFiltro);
+        if (totalTematicas > tematicasEnFiltro) {
+          lineas.push("       · Las demás no salen en el desplegable porque lo volverían inservible,");
+          lineas.push("         pero se siguen encontrando escribiéndolas en el buscador.");
+          lineas.push("         Se ajusta con la constante TEMATICA_MIN_TITULOS.");
+        }
+      } catch (err) {
+        reporte.avisos.push("No se pudo revisar la calidad de los datos: " + err.message);
+        lineas.push("     ⚠ No se pudo revisar la calidad de los datos: " + err.message);
+      }
     }
 
     // Proveedores: es el dato que define la operación de Bogotá (16 a 20).
-    try {
-      const diagnostico = verificarProveedores();
-      lineas.push("");
-      lineas.push("   Proveedores detectados: " + diagnostico.total +
-        " (se esperan entre " + PROVEEDORES_ESPERADOS_MIN + " y " + PROVEEDORES_ESPERADOS_MAX + ")");
-      if (diagnostico.aviso) {
-        reporte.avisos.push(diagnostico.aviso);
-        lineas.push("   ⚠ " + diagnostico.aviso);
-      } else {
-        lineas.push("   ✓ Dentro del rango esperado.");
+    if (!mapeo.faltantes.length) {
+      try {
+        const diagnostico = verificarProveedores();
+        lineas.push("");
+        lineas.push("   Proveedores detectados: " + diagnostico.total +
+          " (se esperan entre " + PROVEEDORES_ESPERADOS_MIN + " y " + PROVEEDORES_ESPERADOS_MAX + ")");
+        if (diagnostico.aviso) {
+          reporte.avisos.push(diagnostico.aviso);
+          lineas.push("   ⚠ " + diagnostico.aviso);
+        } else {
+          lineas.push("   ✓ Dentro del rango esperado.");
+        }
+        diagnostico.detalle.forEach(function (d) {
+          lineas.push("       · " + d.proveedor + ": " + d.titulos + " títulos");
+        });
+      } catch (err) {
+        reporte.avisos.push("No se pudieron contar los proveedores: " + err.message);
+        lineas.push("   ⚠ No se pudieron contar los proveedores: " + err.message);
       }
-      diagnostico.detalle.forEach(function (d) {
-        lineas.push("       · " + d.proveedor + ": " + d.titulos + " títulos");
-      });
-    } catch (err) {
-      reporte.avisos.push("No se pudieron contar los proveedores: " + err.message);
-      lineas.push("   ⚠ No se pudieron contar los proveedores: " + err.message);
     }
   }
 

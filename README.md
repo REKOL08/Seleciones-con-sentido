@@ -49,6 +49,9 @@ El sistema de Bogotá conserva la misma estructura y metodología, y agrega:
 5. **Buscador público** (`bogota/Index.html`), la vista que en la instalación
    base todavía está pendiente de incorporar.
 6. **`configurarSistema()`**, que verifica la hoja de cálculo antes de publicar.
+7. **Lectura flexible del catálogo**: las columnas se identifican por nombre y
+   no por posición, y la búsqueda ignora las tildes
+   (`docs/bogota-catalogo.md`).
 
 Ver `bogota/README.md` y `docs/bogota-instalacion.md` para instalar esa variante.
 

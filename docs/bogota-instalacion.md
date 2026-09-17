@@ -18,33 +18,38 @@ cálculo de Google**. Eso crea una copia nativa; trabaja sobre esa copia.
 
 ## Paso 1 · Preparar la pestaña del catálogo
 
-El sistema espera una pestaña llamada **`IndiceGlobal`** con **estas 12 columnas
-en este orden exacto**:
+El sistema espera una pestaña llamada **`IndiceGlobal`**.
 
-| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Proveedor | Sede | Titulo | Autor | Editorial | Categoria | Programa | Precio | ISBN | Stock | Observaciones | HojaOrigen |
+**El orden de las columnas no importa**: el catálogo se identifica por el
+**nombre del encabezado**, ignorando mayúsculas, tildes y signos. Las columnas
+que no uses se ignoran y las que falten toman un valor por defecto.
 
-### Por qué el orden importa tanto
+Solo dos columnas son obligatorias:
 
-El catálogo se lee **por posición**, no por el nombre del encabezado
-(`leerCatalogoDesdeHoja_` toma `fila[0]` como Proveedor, `fila[1]` como Sede,
-y así). Si las columnas están en otro orden, el sistema **no da ningún error**:
-simplemente muestra los datos cambiados de lugar, por ejemplo el autor donde
-debería ir la editorial.
+| Campo | Encabezados aceptados |
+|---|---|
+| Título | `Titulo`, `Título`, `Nombre del libro` |
+| Proveedor | `Proveedor`, `Distribuidor` |
 
-Por eso el paso 4 de esta guía incluye una verificación automática.
+Las demás (autor, editorial, precio, ISBN, año, área/categoría, programa,
+sede, stock, observaciones) se reconocen si están y se omiten si no.
+La lista completa de encabezados aceptados está en **`docs/bogota-catalogo.md`**.
 
-### Qué hacer con tu archivo
+Un archivo con columnas `ISBN | TITULO | AUTOR | AÑO | PRECIO | PROVEEDOR |
+ÁREA | CATEGORIA | EDITORIAL` funciona tal cual, sin tocar nada.
 
+### Qué sí hay que revisar
+
+- **La fila 1 debe ser el encabezado.** Los datos empiezan en la fila 2.
+- **Un solo encabezado por columna**, sin filas de título o logo encima.
 - Si la pestaña del catálogo tiene otro nombre: renómbrala a `IndiceGlobal`,
   **o** cambia la constante `NOMBRE_HOJA_CATALOGO` al principio de `Código.gs`.
 - Si tienes un catálogo por proveedor en pestañas separadas: hay que
-  consolidarlos en una sola pestaña. La columna `HojaOrigen` existe justamente
-  para no perder de qué hoja vino cada fila.
-- Columnas que no uses (`Stock`, `Observaciones`, `HojaOrigen`): déjalas
-  creadas aunque vayan vacías, para que las posiciones no se corran.
-- La fila 1 debe ser el encabezado. Los datos empiezan en la fila 2.
+  consolidarlos en una sola. La columna `HojaOrigen` existe para no perder de
+  qué hoja vino cada fila.
+
+El paso 5 verifica todo esto automáticamente y te dice qué columna quedó
+asignada a cada campo.
 
 ## Paso 2 · Abrir el editor de Apps Script
 
@@ -146,6 +151,8 @@ sistema no lo genera.
 - [ ] Abrir el buscador y comprobar que aparecen los títulos, y que los datos
       de cada tarjeta están en el campo que les corresponde (autor donde va el
       autor, editorial donde va la editorial).
+- [ ] Buscar una palabra **sin tildes** (por ejemplo `psicologia`) y confirmar
+      que devuelve los títulos escritos con tilde.
 - [ ] Filtrar por proveedor y confirmar que aparecen los 16–20.
 - [ ] Enviar una solicitud de prueba con datos ficticios y verificar que llega
       el correo y que la fila aparece en la pestaña `Pedidos`.
@@ -178,7 +185,9 @@ inmediato, ejecutar **`refrescarCacheCatalogo()`** desde el editor.
 | Síntoma | Causa probable |
 |---|---|
 | "No se encontró la pestaña 'IndiceGlobal'" | La pestaña del catálogo tiene otro nombre |
-| Los datos salen en el campo equivocado | Las columnas del catálogo están en otro orden → ejecutar `configurarSistema()` |
+| Los datos salen en el campo equivocado | Un encabezado no se reconoció → ejecutar `configurarSistema()` y mirar la asignación |
+| El filtro de Temática no trae un tema que sí existe | La lista se recorta a las temáticas con 10+ títulos → buscarlo por texto (`docs/bogota-catalogo.md`) |
+| Muchos títulos dicen "Precio por confirmar" | Ese proveedor no envió precios → `configurarSistema()` dice cuál es |
 | El buscador no muestra cambios recientes | La caché de 30 minutos → `refrescarCacheCatalogo()` |
 | No llegan los correos | Falta `CORREO_BIBLIOTECA`, o se agotó la cuota diaria de `MailApp` |
 | El panel dice "Clave incorrecta" | Falta `CLAVE_BIBLIOTECA` en las Script Properties |

@@ -114,6 +114,8 @@
       border:1px solid var(--linea); border-radius:3px; font-family:'Inter', sans-serif;
     }
     .filtro select:focus{ outline:2px solid var(--color-institucional); outline-offset:1px; }
+    .aviso-filtro{ font-size:10.5px; color:var(--texto-suave); margin:5px 0 0; line-height:1.45; }
+    .aviso-filtro[hidden]{ display:none; }
 
     .pie-buscador{
       display:flex; justify-content:space-between; align-items:center; gap:12px;
@@ -177,6 +179,7 @@
     }
     .libro-pie{ margin-top:auto; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
     .libro-precio{ font-family:'Fraunces', serif; font-weight:600; font-size:16px; }
+    .libro-precio.sin-precio{ font-family:'Inter', sans-serif; font-size:12px; font-weight:600; color:var(--color-acento); }
     .btn-agregar{
       font-family:'Inter', sans-serif; font-size:12.5px; font-weight:600;
       padding:7px 13px; border:none; border-radius:3px;
@@ -415,6 +418,7 @@
         <div class="filtro">
           <label for="filtroCategoria">Temática</label>
           <select id="filtroCategoria"><option value="">Todas</option></select>
+          <p class="aviso-filtro" id="avisoTematicas" hidden></p>
         </div>
       </div>
 
@@ -678,6 +682,18 @@
       return '$ ' + numero.toLocaleString('es-CO');
     }
 
+    // Buena parte del catálogo consolidado llega sin precio (un proveedor
+    // puede no haberlo enviado). Mostrar "$ 0" haría creer que el libro es
+    // gratis, así que se dice explícitamente que falta por confirmar. Esos
+    // títulos se pueden solicitar igual; simplemente no suman al estimado.
+    function tienePrecio(valor){
+      return aNumero(valor) > 0;
+    }
+
+    function formatearPrecioCatalogo(valor){
+      return tienePrecio(valor) ? formatearPrecio(valor) : 'Precio por confirmar';
+    }
+
     function formatearFecha(valor){
       if (!valor) return '—';
       const fecha = new Date(valor);
@@ -805,18 +821,36 @@
     }
 
     function llenarFiltros(){
-      const porLlenar = [
-        { id: 'filtroSede', valores: facetas.sedes, etiquetaTodos: 'Todas' },
-        { id: 'filtroCategoria', valores: facetas.categorias, etiquetaTodos: 'Todas' }
-      ];
+      const selectSede = document.getElementById('filtroSede');
+      selectSede.innerHTML = '<option value="">Todas</option>' +
+        (facetas.sedes || []).map(function(valor){
+          return '<option value="' + escapar(valor) + '">' + escapar(valor) + '</option>';
+        }).join('');
 
-      porLlenar.forEach(function(config){
-        const select = document.getElementById(config.id);
-        select.innerHTML = '<option value="">' + config.etiquetaTodos + '</option>' +
-          (config.valores || []).map(function(valor){
-            return '<option value="' + escapar(valor) + '">' + escapar(valor) + '</option>';
-          }).join('');
-      });
+      // La lista de temáticas viene recortada por el backend: un catálogo
+      // consolidado trae miles, casi todas con uno o dos títulos. Se muestran
+      // las que tienen peso y se avisa que el resto se busca por texto, para
+      // que nadie concluya que un tema no está en el catálogo.
+      const selectCategoria = document.getElementById('filtroCategoria');
+      const conConteoCat = facetas.categoriasConConteo || [];
+      selectCategoria.innerHTML = '<option value="">Todas</option>' +
+        (conConteoCat.length
+          ? conConteoCat.map(function(c){
+              return '<option value="' + escapar(c.categoria) + '">' +
+                escapar(c.categoria) + ' (' + c.titulos + ')</option>';
+            }).join('')
+          : (facetas.categorias || []).map(function(valor){
+              return '<option value="' + escapar(valor) + '">' + escapar(valor) + '</option>';
+            }).join(''));
+
+      const avisoTematicas = document.getElementById('avisoTematicas');
+      if (facetas.categoriasTruncadas) {
+        avisoTematicas.textContent = 'Se listan las temáticas con ' +
+          facetas.tematicaMinTitulos + ' títulos o más. Para las demás, escribe el tema en el buscador.';
+        avisoTematicas.hidden = false;
+      } else {
+        avisoTematicas.hidden = true;
+      }
 
       // El proveedor muestra cuántos títulos aporta cada uno: con 16 a 20
       // proveedores en la lista, ese número ayuda a orientarse.
@@ -952,6 +986,7 @@
 
       const meta = [];
       if (textoLimpio(libro.editorial)) meta.push(escapar(libro.editorial));
+      if (textoLimpio(libro.anio)) meta.push(escapar(libro.anio));
       if (textoLimpio(libro.isbn)) meta.push('ISBN ' + escapar(libro.isbn));
       if (textoLimpio(libro.stock)) meta.push('Stock: ' + escapar(libro.stock));
       if (textoLimpio(libro.sede)) meta.push(escapar(libro.sede));
@@ -974,7 +1009,8 @@
           (textoLimpio(libro.observaciones)
             ? '<p class="libro-observaciones">' + escapar(libro.observaciones) + '</p>' : '') +
           '<div class="libro-pie">' +
-            '<span class="libro-precio">' + formatearPrecio(libro.precio) + '</span>' +
+            '<span class="libro-precio' + (tienePrecio(libro.precio) ? '' : ' sin-precio') + '">' +
+              formatearPrecioCatalogo(libro.precio) + '</span>' +
             control +
           '</div>' +
         '</article>';
@@ -1092,8 +1128,10 @@
             '<div>' +
               '<div class="item-solicitud-titulo">' + escapar(item.titulo) + '</div>' +
               '<div class="item-solicitud-sub">' +
-                formatearPrecio(item.precio) + ' × ' + item.cantidad +
-                ' = ' + formatearPrecio(aNumero(item.precio) * aNumero(item.cantidad)) +
+                (tienePrecio(item.precio)
+                  ? formatearPrecio(item.precio) + ' × ' + item.cantidad +
+                    ' = ' + formatearPrecio(aNumero(item.precio) * aNumero(item.cantidad))
+                  : 'Precio por confirmar · ' + item.cantidad + ' ejemplar(es)') +
               '</div>' +
               '<div class="control-cantidad" style="margin-top:6px;">' +
                 '<button type="button" aria-label="Quitar un ejemplar" onclick="cambiarCantidadPorClave(\'' + claveJs + '\', -1)">−</button>' +
@@ -1105,12 +1143,18 @@
           '</li>';
       }).join('');
 
+      const sinPrecio = carrito.filter(function(item){ return !tienePrecio(item.precio); }).length;
+
       contenedor.innerHTML =
         '<ul class="lista-solicitud">' + lista + '</ul>' +
         '<div class="total-solicitud">' +
           '<span>' + ejemplaresCarrito() + ' ejemplar(es)</span>' +
           '<strong>' + formatearPrecio(totalCarrito()) + '</strong>' +
         '</div>' +
+        (sinPrecio
+          ? '<p class="nota-precio" style="margin:-4px 0 12px; color:var(--color-acento);">' +
+            sinPrecio + ' título(s) sin precio en el catálogo: no suman al total.</p>'
+          : '') +
         '<button class="primario" type="button" style="width:100%;" onclick="abrirModalSolicitud()">Enviar solicitud</button>' +
         '<button class="secundario" type="button" style="width:100%; margin-top:8px;" onclick="vaciarCarrito()">Vaciar</button>' +
         '<p class="nota-precio">Los precios son de referencia del catálogo y pueden variar. ' +
@@ -1143,7 +1187,12 @@
           return '<li>' + escapar(item.titulo) +
             (item.cantidad > 1 ? ' <strong>×' + item.cantidad + '</strong>' : '') + '</li>';
         }).join('') + '</ul>' +
-        '<div class="total"><span>Valor total estimado</span><strong>' + formatearPrecio(totalCarrito()) + '</strong></div>';
+        '<div class="total"><span>Valor total estimado</span><strong>' + formatearPrecio(totalCarrito()) + '</strong></div>' +
+        (carrito.filter(function(item){ return !tienePrecio(item.precio); }).length
+          ? '<p style="font-size:11.5px; color:var(--texto-suave); margin:8px 0 0;">' +
+            'Algunos títulos no tienen precio registrado en el catálogo, así que no suman al estimado. ' +
+            'La biblioteca los confirmará con el proveedor.</p>'
+          : '');
 
       abrirModal('modalSolicitud');
     }

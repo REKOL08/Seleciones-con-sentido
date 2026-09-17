@@ -84,12 +84,17 @@ Resumen:
    "URL PARA IMPRIMIR EN EL QR".
 7. Probar con datos ficticios: `probarRegistrarPedido()` y `probarCargueMasivo()`.
 
-### Cuidado con el orden de las columnas del catálogo
+### El catálogo se adapta al archivo, no al revés
 
-`leerCatalogoDesdeHoja_()` lee el catálogo **por posición**, no por el nombre
-del encabezado. Si las columnas están en otro orden, el sistema **no falla**:
-muestra los datos cambiados de lugar. `configurarSistema()` existe en buena
-parte para detectar eso antes de la jornada.
+`leerCatalogoDesdeHoja_()` identifica las columnas **por el nombre del
+encabezado**, ignorando mayúsculas, tildes y signos. El orden no importa, las
+columnas que sobran se ignoran y las que faltan toman un valor por defecto.
+Solo `Titulo` y `Proveedor` son obligatorias.
+
+La búsqueda ignora las tildes, el filtro de Temática se recorta a las temáticas
+con peso real, y los títulos sin precio se muestran como "Precio por confirmar"
+sin sumar al total. El detalle y las mediciones que respaldan cada decisión
+están en **`docs/bogota-catalogo.md`**.
 
 ## Script Properties
 
