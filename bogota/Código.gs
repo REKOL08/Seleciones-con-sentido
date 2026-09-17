@@ -2318,6 +2318,361 @@ function confirmarCargueMasivo(textoArchivo, nombreArchivo, omitirFilasConError)
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// CONSOLIDACIÓN DEL CATÁLOGO (varios proveedores → IndiceGlobal)
+// ════════════════════════════════════════════════════════════════════════
+// Para armar el catálogo a medida que van llegando los archivos de cada
+// proveedor, sin reformatear ninguno a mano.
+//
+// Cómo se usa:
+//   1. Pega el catálogo de cada proveedor en su PROPIA pestaña. El nombre de
+//      la pestaña es el nombre del proveedor (se usa si el archivo no trae
+//      una columna de proveedor, que es lo habitual: su catálogo es todo suyo).
+//   2. Ejecuta revisarConsolidacion() y lee el informe. No escribe nada.
+//   3. Si el informe está bien, ejecuta consolidarCatalogo().
+//
+// Cada pestaña puede tener sus columnas en el orden que sea y con los nombres
+// que use ese proveedor: se mapean igual que el catálogo principal, por nombre
+// de encabezado (ver CAMPOS_CATALOGO). Lo único indispensable es el título.
+//
+// IMPORTANTE: al consolidar, "IndiceGlobal" se REESCRIBE a partir de las
+// pestañas de origen. Pasa a ser una hoja derivada: no la edites a mano, edita
+// la pestaña del proveedor y vuelve a consolidar. Las pestañas de origen nunca
+// se tocan ni se borran, así que hacen las veces de respaldo.
+//
+// Se ignoran siempre: IndiceGlobal, Pedidos, LibrosDeseados y cualquier
+// pestaña cuyo nombre empiece por guion bajo ("_notas", "_pruebas"…).
+// ────────────────────────────────────────────────────────────────────────
+
+// Orden en que se escribe el catálogo consolidado. Como la lectura mapea por
+// nombre, este orden es solo el que queda más cómodo de mirar en la hoja.
+const ENCABEZADOS_CATALOGO = [
+  "Proveedor", "Sede", "Titulo", "Autor", "Editorial", "Categoria",
+  "Programa", "Precio", "ISBN", "Año", "Stock", "Observaciones", "HojaOrigen"
+];
+
+// Las filas se escriben por lotes: un setValues() con decenas de miles de
+// filas de golpe es la forma más rápida de agotar los 6 minutos que Apps
+// Script le da a una ejecución.
+const CONSOLIDACION_LOTE_FILAS = 2000;
+
+// Relación medida sobre un catálogo real: unas 1.550 filas por cada trozo de
+// caché. Sirve para avisar, antes de que ocurra, de que un catálogo demasiado
+// grande puede no caber en CacheService.
+const FILAS_POR_TROZO_CACHE_APROX = 1550;
+const TROZOS_CACHE_PARA_AVISAR = 20;
+
+function esHojaDelSistema_(nombre) {
+  return nombre === NOMBRE_HOJA_CATALOGO ||
+         nombre === NOMBRE_HOJA_PEDIDOS ||
+         nombre === NOMBRE_HOJA_DESEOS ||
+         nombre.charAt(0) === '_';
+}
+
+// Lee todas las pestañas de proveedor y arma las filas del catálogo, sin
+// escribir nada. Lo usan tanto la revisión como la consolidación, para que
+// las dos vean exactamente lo mismo.
+function analizarConsolidacion_() {
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  const resultado = {
+    hojas: [],        // detalle por pestaña
+    filas: [],        // filas ya listas para escribir en IndiceGlobal
+    problemas: [],
+    avisos: [],
+    caracteres: 0
+  };
+
+  const hojasOrigen = libro.getSheets().filter(function (h) {
+    return !esHojaDelSistema_(h.getName());
+  });
+
+  if (!hojasOrigen.length) {
+    resultado.problemas.push(
+      "No hay ninguna pestaña de proveedor. Pega el catálogo de cada proveedor " +
+      "en su propia pestaña (el nombre de la pestaña es el nombre del proveedor) " +
+      "y vuelve a intentar."
+    );
+    return resultado;
+  }
+
+  const proveedoresVistos = {}; // para detectar el mismo nombre escrito de dos formas
+
+  hojasOrigen.forEach(function (hoja) {
+    const nombreHoja = hoja.getName();
+    const detalle = {
+      hoja: nombreHoja, filas: 0, omitidasSinTitulo: 0,
+      proveedorDesde: '', campos: {}, problema: ''
+    };
+
+    if (hoja.getLastRow() < 2 || hoja.getLastColumn() < 1) {
+      detalle.problema = "Sin filas de datos: se omite.";
+      resultado.hojas.push(detalle);
+      return;
+    }
+
+    const valores = hoja.getDataRange().getValues();
+    const mapeo = mapearColumnasCatalogo_(valores[0]);
+    detalle.campos = mapeo.indices;
+
+    // Aquí el proveedor NO es obligatorio: si el archivo no lo trae, se usa el
+    // nombre de la pestaña, que es el caso normal al recibir el catálogo de un
+    // proveedor (todo el archivo es de él).
+    if (mapeo.indices.titulo === -1) {
+      detalle.problema = "No se encontró la columna de título. Revisa la fila de encabezados.";
+      resultado.problemas.push("Pestaña '" + nombreHoja + "': no se encontró la columna de título.");
+      resultado.hojas.push(detalle);
+      return;
+    }
+
+    detalle.proveedorDesde = mapeo.indices.proveedor === -1
+      ? "del nombre de la pestaña"
+      : "de la columna '" + String(valores[0][mapeo.indices.proveedor]).trim() + "'";
+
+    const leer = function (fila, campo) {
+      const posicion = mapeo.indices[campo];
+      if (posicion === -1 || posicion >= fila.length) return '';
+      return limpiarValorCatalogo_(fila[posicion]);
+    };
+
+    for (let i = 1; i < valores.length; i++) {
+      const fila = valores[i];
+      const titulo = leer(fila, 'titulo');
+      if (!titulo) { detalle.omitidasSinTitulo++; continue; }
+
+      const proveedor = leer(fila, 'proveedor') || nombreHoja;
+      const clave = sinTildes_(proveedor);
+      if (!proveedoresVistos[clave]) proveedoresVistos[clave] = {};
+      proveedoresVistos[clave][proveedor] = true;
+
+      const filaNueva = [
+        proveedor,
+        leer(fila, 'sede') || CIUDAD,
+        titulo,
+        leer(fila, 'autor'),
+        leer(fila, 'editorial'),
+        leer(fila, 'categoria'),
+        leer(fila, 'programa'),
+        leer(fila, 'precio'),
+        limpiarIsbnCatalogo_(mapeo.indices.isbn === -1 ? '' : fila[mapeo.indices.isbn]),
+        leer(fila, 'anio'),
+        leer(fila, 'stock'),
+        leer(fila, 'observaciones'),
+        // La hoja de origen permite rastrear de dónde salió cada fila después
+        // de consolidar, que es justamente para lo que existe la columna.
+        leer(fila, 'hojaOrigen') || nombreHoja
+      ];
+
+      filaNueva.forEach(function (v) { resultado.caracteres += String(v).length; });
+      resultado.filas.push(filaNueva);
+      detalle.filas++;
+    }
+
+    resultado.hojas.push(detalle);
+  });
+
+  // Un mismo proveedor escrito de dos formas se cuenta como dos proveedores y
+  // rompe el filtro. Vale la pena avisarlo antes de consolidar.
+  Object.keys(proveedoresVistos).forEach(function (clave) {
+    const variantes = Object.keys(proveedoresVistos[clave]);
+    if (variantes.length > 1) {
+      resultado.avisos.push(
+        "El mismo proveedor aparece escrito de varias formas: " +
+        variantes.map(function (v) { return "'" + v + "'"; }).join(" y ") +
+        ". Unifícalo para que no se cuente dos veces."
+      );
+    }
+  });
+
+  return resultado;
+}
+
+// Revisión que NO escribe nada. Ejecutar siempre antes de consolidar.
+function revisarConsolidacion() {
+  const analisis = analizarConsolidacion_();
+  const lineas = [];
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" Revisión de la consolidación (no se escribió nada)");
+  lineas.push("══════════════════════════════════════════════════");
+
+  if (analisis.problemas.length && !analisis.filas.length) {
+    analisis.problemas.forEach(function (p) { lineas.push("✗ " + p); });
+    Logger.log(lineas.join("\n"));
+    return { ok: false, problemas: analisis.problemas, informe: lineas.join("\n") };
+  }
+
+  lineas.push("");
+  lineas.push("Pestañas de proveedor encontradas: " + analisis.hojas.length);
+  analisis.hojas.forEach(function (h) {
+    if (h.problema) {
+      lineas.push("  ✗ " + h.hoja + " — " + h.problema);
+      return;
+    }
+    lineas.push("  ✓ " + h.hoja + ": " + h.filas + (h.filas === 1 ? " título" : " títulos") +
+      " · proveedor tomado " + h.proveedorDesde);
+    if (h.omitidasSinTitulo) {
+      lineas.push("      · " + h.omitidasSinTitulo + (h.omitidasSinTitulo === 1
+        ? " fila sin título que se omitirá" : " filas sin título que se omitirán"));
+    }
+    const ausentes = CAMPOS_CATALOGO.filter(function (d) { return h.campos[d.campo] === -1; })
+      .map(function (d) { return d.campo; });
+    if (ausentes.length) {
+      lineas.push("      · sin columna para: " + ausentes.join(', ') + " (tomarán valor por defecto)");
+    }
+  });
+
+  const hojaActual = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOMBRE_HOJA_CATALOGO);
+  const filasActuales = (hojaActual && hojaActual.getLastRow() > 1) ? hojaActual.getLastRow() - 1 : 0;
+
+  lineas.push("");
+  lineas.push("Resultado si consolidas ahora:");
+  lineas.push("  · '" + NOMBRE_HOJA_CATALOGO + "' pasaría de " + filasActuales + " a " + analisis.filas.length + " títulos.");
+
+  const trozos = Math.ceil(analisis.filas.length / FILAS_POR_TROZO_CACHE_APROX);
+  lineas.push("  · Caché estimada: ~" + trozos + " trozo(s).");
+  if (trozos > TROZOS_CACHE_PARA_AVISAR) {
+    const aviso = "El catálogo consolidado es grande (~" + trozos + " trozos de caché). " +
+      "Si CacheService no lo admite, cada búsqueda volverá a leer la hoja completa y el " +
+      "buscador se pondrá lento. Mide el tiempo de la primera búsqueda antes de la jornada.";
+    analisis.avisos.push(aviso);
+  }
+
+  if (filasActuales > analisis.filas.length) {
+    lineas.push("");
+    lineas.push("  ⚠ El catálogo actual tiene MÁS títulos que el que se armaría.");
+    lineas.push("    consolidarCatalogo() se negará a hacerlo para no perder datos.");
+    lineas.push("    Si es lo que quieres, usa consolidarCatalogoForzado().");
+  }
+
+  if (analisis.problemas.length) {
+    lineas.push("");
+    lineas.push("Problemas:");
+    analisis.problemas.forEach(function (p) { lineas.push("  ✗ " + p); });
+  }
+  if (analisis.avisos.length) {
+    lineas.push("");
+    lineas.push("Avisos:");
+    analisis.avisos.forEach(function (a) { lineas.push("  ⚠ " + a); });
+  }
+
+  lineas.push("");
+  lineas.push("Si el informe está bien, ejecuta consolidarCatalogo().");
+  lineas.push("══════════════════════════════════════════════════");
+
+  Logger.log(lineas.join("\n"));
+  return {
+    ok: !analisis.problemas.length,
+    titulosResultantes: analisis.filas.length,
+    titulosActuales: filasActuales,
+    problemas: analisis.problemas,
+    avisos: analisis.avisos,
+    informe: lineas.join("\n")
+  };
+}
+
+// Reescribe "IndiceGlobal" con la unión de todas las pestañas de proveedor.
+// Las pestañas de origen no se modifican ni se borran.
+function consolidarCatalogo(opciones) {
+  opciones = opciones || {};
+  const forzar = opciones.forzar === true;
+
+  const analisis = analizarConsolidacion_();
+
+  if (analisis.problemas.length) {
+    throw new Error(
+      "No se consolidó nada porque hay problemas por resolver:\n · " +
+      analisis.problemas.join("\n · ") +
+      "\nEjecuta revisarConsolidacion() para ver el detalle."
+    );
+  }
+  if (!analisis.filas.length) {
+    throw new Error("No se consolidó nada: las pestañas de proveedor no tienen títulos.");
+  }
+
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  let hoja = libro.getSheetByName(NOMBRE_HOJA_CATALOGO);
+  const filasActuales = (hoja && hoja.getLastRow() > 1) ? hoja.getLastRow() - 1 : 0;
+
+  // Red de seguridad: consolidar debería hacer crecer el catálogo. Si el
+  // resultado es más pequeño, casi siempre es porque faltó pegar una pestaña
+  // o un encabezado no se reconoció, no porque se quiera recortar el catálogo.
+  if (!forzar && filasActuales > analisis.filas.length) {
+    throw new Error(
+      "El catálogo actual tiene " + filasActuales + " títulos y la consolidación " +
+      "solo produciría " + analisis.filas.length + ". No se escribió nada, para no " +
+      "perder datos.\nRevisa si falta alguna pestaña de proveedor o si algún " +
+      "encabezado no se reconoció (ejecuta revisarConsolidacion()).\nSi de verdad " +
+      "quieres reemplazarlo, ejecuta consolidarCatalogoForzado()."
+    );
+  }
+
+  // Mismo candado que el resto del sistema: nadie debería estar escribiendo
+  // en la hoja mientras se reconstruye el catálogo.
+  const candado = LockService.getScriptLock();
+  try {
+    candado.waitLock(30000);
+  } catch (err) {
+    throw new Error("El sistema está ocupado. Espera unos segundos y vuelve a intentar (no se escribió nada).");
+  }
+
+  let escritas = 0;
+  try {
+    if (!hoja) hoja = libro.insertSheet(NOMBRE_HOJA_CATALOGO);
+
+    hoja.clear();
+    hoja.getRange(1, 1, 1, ENCABEZADOS_CATALOGO.length)
+      .setValues([ENCABEZADOS_CATALOGO])
+      .setFontWeight('bold').setBackground('#7fb536').setFontColor('#FFFFFF');
+
+    // Por lotes, para no agotar el tiempo de ejecución con catálogos grandes.
+    for (let inicio = 0; inicio < analisis.filas.length; inicio += CONSOLIDACION_LOTE_FILAS) {
+      const lote = analisis.filas.slice(inicio, inicio + CONSOLIDACION_LOTE_FILAS);
+      hoja.getRange(2 + inicio, 1, lote.length, ENCABEZADOS_CATALOGO.length).setValues(lote);
+      escritas += lote.length;
+    }
+    hoja.setFrozenRows(1);
+  } finally {
+    candado.releaseLock();
+  }
+
+  // El catálogo cambió: la caché vieja ya no sirve.
+  let avisoCache = '';
+  try {
+    refrescarCacheCatalogo();
+  } catch (err) {
+    avisoCache = "El catálogo se consolidó bien, pero no se pudo refrescar la caché: " +
+      err.message + ". Ejecuta refrescarCacheCatalogo() aparte.";
+  }
+
+  const lineas = [];
+  lineas.push("Catálogo consolidado: " + escritas + " títulos desde " +
+    analisis.hojas.filter(function (h) { return !h.problema; }).length + " pestaña(s).");
+  analisis.hojas.forEach(function (h) {
+    if (!h.problema) lineas.push("  · " + h.hoja + ": " + h.filas);
+  });
+  if (avisoCache) lineas.push("⚠ " + avisoCache);
+  analisis.avisos.forEach(function (a) { lineas.push("⚠ " + a); });
+  lineas.push("");
+  lineas.push("Recuerda: 'IndiceGlobal' es ahora una hoja derivada. No la edites a");
+  lineas.push("mano; edita la pestaña del proveedor y vuelve a consolidar.");
+  Logger.log(lineas.join("\n"));
+
+  return {
+    ok: true,
+    titulos: escritas,
+    hojas: analisis.hojas.filter(function (h) { return !h.problema; }).length,
+    avisos: analisis.avisos,
+    avisoCache: avisoCache,
+    informe: lineas.join("\n")
+  };
+}
+
+// Consolida aunque el resultado sea más pequeño que el catálogo actual.
+// Usar solo cuando se sabe que el recorte es intencional.
+function consolidarCatalogoForzado() {
+  return consolidarCatalogo({ forzar: true });
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // PUESTA EN MARCHA SOBRE UNA HOJA DE CÁLCULO EXISTENTE
 // ════════════════════════════════════════════════════════════════════════
 // Para cuando ya se tiene el archivo con el catálogo consolidado de los
@@ -2350,7 +2705,17 @@ function configurarSistema() {
   const nombresHojas = libro.getSheets().map(function (h) { return h.getName(); });
   lineas.push("");
   lineas.push("Pestañas encontradas en el archivo:");
-  nombresHojas.forEach(function (n) { lineas.push("  · " + n); });
+  nombresHojas.forEach(function (n) {
+    lineas.push("  · " + n + (esHojaDelSistema_(n) ? "" : "   (pestaña de proveedor)"));
+  });
+
+  const hojasProveedor = nombresHojas.filter(function (n) { return !esHojaDelSistema_(n); });
+  if (hojasProveedor.length) {
+    lineas.push("");
+    lineas.push("  Hay " + hojasProveedor.length + " pestaña(s) de proveedor sin consolidar.");
+    lineas.push("  Ejecuta revisarConsolidacion() y luego consolidarCatalogo()");
+    lineas.push("  para volcarlas a '" + NOMBRE_HOJA_CATALOGO + "'.");
+  }
 
   // ── 1. Catálogo ──────────────────────────────────────────────────────
   lineas.push("");

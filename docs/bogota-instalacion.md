@@ -44,9 +44,11 @@ Un archivo con columnas `ISBN | TITULO | AUTOR | AÑO | PRECIO | PROVEEDOR |
 - **Un solo encabezado por columna**, sin filas de título o logo encima.
 - Si la pestaña del catálogo tiene otro nombre: renómbrala a `IndiceGlobal`,
   **o** cambia la constante `NOMBRE_HOJA_CATALOGO` al principio de `Código.gs`.
-- Si tienes un catálogo por proveedor en pestañas separadas: hay que
-  consolidarlos en una sola. La columna `HojaOrigen` existe para no perder de
-  qué hoja vino cada fila.
+- Si tienes un catálogo por proveedor en pestañas separadas: **no hay que
+  unirlos a mano**. Deja cada uno en su pestaña (con el nombre del proveedor) y
+  usa `revisarConsolidacion()` + `consolidarCatalogo()` en el paso 5. La columna
+  `HojaOrigen` registra de qué pestaña salió cada fila.
+  Ver `docs/bogota-catalogo.md`.
 
 El paso 5 verifica todo esto automáticamente y te dice qué columna quedó
 asignada a cada campo.
@@ -117,6 +119,27 @@ Luego abre **Registro de ejecución**. Vas a ver un informe que:
 Si el informe termina en "FALTAN COSAS POR CORREGIR", corrige lo que indica y
 vuelve a ejecutarla. Repite hasta que diga **TODO LISTO**.
 
+## Paso 5B · Consolidar los catálogos de los proveedores
+
+Si los catálogos van llegando de a uno, o si tienes varias pestañas de
+proveedor todavía sin unir:
+
+1. Pega el catálogo de cada proveedor en **su propia pestaña**, con el nombre
+   del proveedor como nombre de la pestaña.
+2. Ejecuta **`revisarConsolidacion()`** y lee el informe. No escribe nada.
+3. Ejecuta **`consolidarCatalogo()`**: reescribe `IndiceGlobal` con todo y
+   refresca la caché.
+
+Cada pestaña puede tener sus columnas como las mande el proveedor. Lo único
+indispensable es la columna de título.
+
+Al agregar un proveedor más adelante, basta con repetir estos tres pasos.
+
+**Después de consolidar, `IndiceGlobal` es una hoja derivada**: no la edites a
+mano, edita la pestaña del proveedor y vuelve a consolidar.
+
+Detalle completo y protecciones: `docs/bogota-catalogo.md`.
+
 ## Paso 6 · Publicar la aplicación web
 
 **Implementar → Nueva implementación → ⚙ → Aplicación web**.
@@ -174,6 +197,9 @@ inmediato, ejecutar **`refrescarCacheCatalogo()`** desde el editor.
 | Función | Para qué |
 |---|---|
 | `configurarSistema()` | Verificación completa de la instalación |
+| `revisarConsolidacion()` | Muestra qué aportaría cada pestaña de proveedor, sin escribir |
+| `consolidarCatalogo()` | Une las pestañas de proveedor en `IndiceGlobal` |
+| `consolidarCatalogoForzado()` | Igual, aceptando que el catálogo quede más pequeño |
 | `verificarProveedores()` | Lista los proveedores y cuántos títulos aporta cada uno |
 | `refrescarCacheCatalogo()` | Aplica ya los cambios hechos en el catálogo |
 | `obtenerUrlsSistema()` | Muestra los enlaces del sistema |
@@ -191,4 +217,6 @@ inmediato, ejecutar **`refrescarCacheCatalogo()`** desde el editor.
 | El buscador no muestra cambios recientes | La caché de 30 minutos → `refrescarCacheCatalogo()` |
 | No llegan los correos | Falta `CORREO_BIBLIOTECA`, o se agotó la cuota diaria de `MailApp` |
 | El panel dice "Clave incorrecta" | Falta `CLAVE_BIBLIOTECA` en las Script Properties |
+| `consolidarCatalogo()` se niega a escribir | El resultado sería más pequeño que el catálogo actual: falta una pestaña o un encabezado no se reconoció |
+| Un proveedor aparece dos veces en el filtro | Está escrito de dos formas distintas: `revisarConsolidacion()` lo señala |
 | El logo no aparece | Falta `ID_LOGO`, o el archivo no es accesible para la cuenta que ejecuta el script |

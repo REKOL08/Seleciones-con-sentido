@@ -84,6 +84,13 @@ Resumen:
    "URL PARA IMPRIMIR EN EL QR".
 7. Probar con datos ficticios: `probarRegistrarPedido()` y `probarCargueMasivo()`.
 
+### Los catálogos se consolidan solos
+
+Cada proveedor va en su propia pestaña, con las columnas como las mande.
+`revisarConsolidacion()` informa qué aportaría cada una y `consolidarCatalogo()`
+las une en `IndiceGlobal`. Al llegar un proveedor nuevo se repite, sin
+reformatear nada. Ver `docs/bogota-catalogo.md`.
+
 ### El catálogo se adapta al archivo, no al revés
 
 `leerCatalogoDesdeHoja_()` identifica las columnas **por el nombre del

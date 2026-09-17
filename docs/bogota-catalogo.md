@@ -1,5 +1,91 @@
 # Bogotá · Cómo lee el sistema el catálogo
 
+## Consolidar varios proveedores
+
+Los catálogos llegan de a uno y cada proveedor manda el suyo con sus propias
+columnas. La consolidación junta todos en `IndiceGlobal` sin reformatear nada.
+
+### Cómo se usa
+
+1. Pega el catálogo de cada proveedor en **su propia pestaña**. El nombre de la
+   pestaña es el nombre del proveedor.
+2. Ejecuta **`revisarConsolidacion()`**. No escribe nada: informa cuántos
+   títulos aporta cada pestaña, de dónde saldrá el nombre del proveedor y qué
+   columnas faltan en cada una.
+3. Si el informe está bien, ejecuta **`consolidarCatalogo()`**.
+
+```text
+┌─ Editorial Alfa ────┐
+│ ISBN TITULO AUTOR … │──┐
+└─────────────────────┘  │
+┌─ Distribuidora Beta ┐  │   consolidarCatalogo()
+│ Titulo Precio ISBN  │──┼──────────────────────────▶  IndiceGlobal
+└─────────────────────┘  │                             (hoja derivada)
+┌─ Libros Gamma ──────┐  │
+│ Titulo              │──┘
+└─────────────────────┘
+```
+
+Cada pestaña puede traer sus columnas en cualquier orden y con los nombres que
+use ese proveedor: se mapean igual que el catálogo principal (ver más abajo).
+**Lo único indispensable es la columna de título.**
+
+### De dónde sale el nombre del proveedor
+
+| La pestaña… | El proveedor se toma de… |
+|---|---|
+| trae columna `Proveedor` | esa columna, fila por fila |
+| no la trae | el **nombre de la pestaña** |
+
+Lo segundo es el caso normal: cuando un proveedor manda su catálogo, todo el
+archivo es suyo y no repite su nombre en cada fila.
+
+### Qué se ignora
+
+- Las pestañas del sistema: `IndiceGlobal`, `Pedidos`, `LibrosDeseados`.
+- Cualquier pestaña cuyo nombre empiece por guion bajo: `_notas`, `_pruebas`…
+- Las filas sin título (se informan, no se cuentan como error).
+
+### Protecciones
+
+| Situación | Qué hace |
+|---|---|
+| Una pestaña no tiene columna de título | **No escribe nada** y dice cuál es |
+| El resultado sería más pequeño que el catálogo actual | **Se niega**, para no perder datos. Casi siempre significa que falta pegar una pestaña o que un encabezado no se reconoció. Si el recorte es intencional: `consolidarCatalogoForzado()` |
+| El mismo proveedor aparece como `EDICIONES ALFA` y `Ediciones Alfa` | Avisa, porque si no se contaría como dos proveedores y partiría el filtro |
+| No hay ninguna pestaña de proveedor | Explica qué hacer, sin tocar nada |
+
+Las pestañas de origen **nunca** se modifican ni se borran: hacen las veces de
+respaldo.
+
+### IndiceGlobal pasa a ser una hoja derivada
+
+Después de consolidar por primera vez, **no edites `IndiceGlobal` a mano**: la
+siguiente consolidación lo sobrescribe. Corrige en la pestaña del proveedor y
+vuelve a consolidar.
+
+La columna `HojaOrigen` queda con el nombre de la pestaña de la que salió cada
+fila, para poder rastrearla después.
+
+### Al agregar un proveedor nuevo
+
+1. Pega su catálogo en una pestaña nueva con su nombre.
+2. `revisarConsolidacion()` → confirma que reconoce sus columnas.
+3. `consolidarCatalogo()` → reescribe `IndiceGlobal` con todo.
+4. La caché se refresca sola; si falla, lo avisa y basta con ejecutar
+   `refrescarCacheCatalogo()`.
+
+### Sobre el tamaño
+
+La consolidación escribe por lotes de 2.000 filas para no agotar los 6 minutos
+que Apps Script le da a una ejecución.
+
+`revisarConsolidacion()` estima cuántos trozos de caché ocupará el resultado y
+avisa si pasa de 20. Ese aviso importa: si el catálogo no cabe en
+`CacheService`, se descarta en silencio y **cada búsqueda vuelve a leer la hoja
+completa**, con el buscador notablemente más lento. Si aparece, mide el tiempo
+de la primera búsqueda antes de la jornada.
+
 ## El catálogo se mapea por nombre de columna
 
 `leerCatalogoDesdeHoja_()` identifica cada columna por el **texto de su
