@@ -3412,7 +3412,7 @@ function diagnosticarPedidos() {
 // a la buena sin perder nada ni duplicar.
 //
 // CÓMO SE USA
-//   1. Rellena las tres constantes de abajo.
+//   1. Rellena las constantes de abajo (los dos IDs y el rango de días).
 //   2. Ejecuta revisarCopiaDeSolicitudes(). No escribe nada: muestra
 //      exactamente qué se copiaría y qué se dejaría fuera, y por qué.
 //   3. Si el informe cuadra, ejecuta copiarSolicitudes().
@@ -3435,9 +3435,14 @@ function diagnosticarPedidos() {
 // ── Rellenar antes de ejecutar ──────────────────────────────────────────
 // Los IDs son la parte larga de la URL de cada hoja:
 // docs.google.com/spreadsheets/d/ESTO_DE_AQUI/edit
-const COPIA_ID_ORIGEN = '';   // hoja donde están hoy las solicitudes
-const COPIA_ID_DESTINO = '';  // hoja definitiva
-const COPIA_FECHA = '';       // 'dd/MM/aaaa' para un solo día; vacío = todas
+const COPIA_ID_ORIGEN = '';    // hoja donde están hoy las solicitudes
+const COPIA_ID_DESTINO = '';   // hoja definitiva
+
+// Rango de días a copiar, ambos incluidos, en formato 'dd/MM/aaaa'.
+// Para un solo día, poner el mismo valor en los dos. Dejar vacío un extremo
+// lo deja sin límite, y vaciar los dos copia todas las fechas.
+const COPIA_FECHA_DESDE = '';
+const COPIA_FECHA_HASTA = '';
 
 // Campos de la hoja de solicitudes y los encabezados que los identifican.
 const CAMPOS_PEDIDOS = [
@@ -3467,6 +3472,21 @@ function mapearColumnasPedidos_(encabezados) {
   return mapearPorAlias_(encabezados, CAMPOS_PEDIDOS, CAMPOS_PEDIDOS_OBLIGATORIOS);
 }
 
+// Pasa 'dd/MM/aaaa' a 'aaaa-MM-dd' con puro texto, sin construir un Date.
+// Así la comparación de días usa exactamente el mismo formato con el que se
+// agrupan las filas más abajo, y no hay forma de que un huso horario corra
+// una fila al día anterior o siguiente.
+function diaIsoDesdeTexto_(texto) {
+  const limpio = (texto || '').toString().trim();
+  if (!limpio) return '';
+  const m = limpio.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!m) return null;
+  const dia = m[1].length === 1 ? '0' + m[1] : m[1];
+  const mes = m[2].length === 1 ? '0' + m[2] : m[2];
+  if (Number(m[2]) < 1 || Number(m[2]) > 12 || Number(m[1]) < 1 || Number(m[1]) > 31) return null;
+  return m[3] + '-' + mes + '-' + dia;
+}
+
 function abrirHojaDeSolicitudes_(id, rol) {
   if (!id) {
     throw new Error("Falta el ID de la hoja de " + rol + ". Rellena COPIA_ID_ORIGEN y " +
@@ -3489,6 +3509,17 @@ function analizarCopiaSolicitudes_() {
 
   if (COPIA_ID_ORIGEN === COPIA_ID_DESTINO) {
     throw new Error("El origen y el destino son la misma hoja. No hay nada que copiar.");
+  }
+
+  const diaDesde = diaIsoDesdeTexto_(COPIA_FECHA_DESDE);
+  const diaHasta = diaIsoDesdeTexto_(COPIA_FECHA_HASTA);
+  if (diaDesde === null || diaHasta === null) {
+    throw new Error("COPIA_FECHA_DESDE y COPIA_FECHA_HASTA deben ir en formato dd/MM/aaaa " +
+      "(por ejemplo 27/09/2026), o vacías.");
+  }
+  if (diaDesde && diaHasta && diaDesde > diaHasta) {
+    throw new Error("COPIA_FECHA_DESDE (" + COPIA_FECHA_DESDE + ") es posterior a " +
+      "COPIA_FECHA_HASTA (" + COPIA_FECHA_HASTA + ").");
   }
 
   const hojaOrigen = libroOrigen.getSheetByName(NOMBRE_HOJA_PEDIDOS);
@@ -3539,17 +3570,16 @@ function analizarCopiaSolicitudes_() {
     const fecha = (celdaFecha instanceof Date) ? celdaFecha : new Date(celdaFecha);
     const fechaValida = celdaFecha !== '' && !isNaN(fecha.getTime());
 
-    // Filtro por día, si se pidió uno concreto.
-    if (COPIA_FECHA) {
+    // Filtro por rango de días, si se pidió alguno.
+    const diaFila = fechaValida ? Utilities.formatDate(fecha, "GMT-5", "yyyy-MM-dd") : '';
+    if (diaDesde || diaHasta) {
       if (!fechaValida) { resultado.fueraDeFecha++; continue; }
-      if (Utilities.formatDate(fecha, "GMT-5", "dd/MM/yyyy") !== COPIA_FECHA) {
-        resultado.fueraDeFecha++; continue;
-      }
+      if (diaDesde && diaFila < diaDesde) { resultado.fueraDeFecha++; continue; }
+      if (diaHasta && diaFila > diaHasta) { resultado.fueraDeFecha++; continue; }
     }
 
-    if (fechaValida) {
-      const dia = Utilities.formatDate(fecha, "GMT-5", "yyyy-MM-dd");
-      resultado.diasEncontrados[dia] = (resultado.diasEncontrados[dia] || 0) + 1;
+    if (diaFila) {
+      resultado.diasEncontrados[diaFila] = (resultado.diasEncontrados[diaFila] || 0) + 1;
     }
 
     const id = String(leer(fila, 'idSolicitud') || '').trim();
@@ -3604,10 +3634,18 @@ function revisarCopiaDeSolicitudes() {
   lineas.push("");
   lineas.push("Origen:  " + a.nombreOrigen);
   lineas.push("Destino: " + a.nombreDestino);
-  lineas.push("Filtro de fecha: " + (COPIA_FECHA || "sin filtro (todas las fechas)"));
+  let descripcionFecha;
+  if (!COPIA_FECHA_DESDE && !COPIA_FECHA_HASTA) descripcionFecha = "sin filtro (todas las fechas)";
+  else if (COPIA_FECHA_DESDE === COPIA_FECHA_HASTA) descripcionFecha = "solo el " + COPIA_FECHA_DESDE;
+  else if (!COPIA_FECHA_DESDE) descripcionFecha = "hasta el " + COPIA_FECHA_HASTA;
+  else if (!COPIA_FECHA_HASTA) descripcionFecha = "desde el " + COPIA_FECHA_DESDE;
+  else descripcionFecha = "del " + COPIA_FECHA_DESDE + " al " + COPIA_FECHA_HASTA + " (ambos incluidos)";
+  lineas.push("Días a copiar: " + descripcionFecha);
   lineas.push("");
   lineas.push("Filas leídas en el origen: " + a.filasLeidas);
-  if (COPIA_FECHA) lineas.push("  · Descartadas por ser de otro día: " + a.fueraDeFecha);
+  if (COPIA_FECHA_DESDE || COPIA_FECHA_HASTA) {
+    lineas.push("  · Descartadas por quedar fuera del rango: " + a.fueraDeFecha);
+  }
 
   const dias = Object.keys(a.diasEncontrados).sort();
   if (dias.length) {
