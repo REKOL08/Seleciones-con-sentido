@@ -357,12 +357,16 @@ const CAMPOS_CATALOGO_OBLIGATORIOS = ['titulo', 'proveedor'];
 // Relaciona cada campo con la columna real del archivo. Una misma columna no
 // puede quedar asignada a dos campos: el primero que la reclama se la queda,
 // y el siguiente pasa a su alias alternativo.
-function mapearColumnasCatalogo_(encabezados) {
+// Relaciona campos con columnas a partir del nombre del encabezado. Cada
+// definición trae sus alias en orden de preferencia, y una columna solo se
+// asigna a un campo: el primero que la reclama se la queda y el siguiente
+// pasa a su alias alternativo. Lo usan el catálogo y la copia de solicitudes.
+function mapearPorAlias_(encabezados, definiciones, obligatorios) {
   const normalizados = encabezados.map(normalizarTextoCargue_);
   const tomadas = {};
   const indices = {};
 
-  CAMPOS_CATALOGO.forEach(function (definicion) {
+  definiciones.forEach(function (definicion) {
     indices[definicion.campo] = -1;
     for (let i = 0; i < definicion.alias.length; i++) {
       const posicion = normalizados.indexOf(definicion.alias[i]);
@@ -374,11 +378,15 @@ function mapearColumnasCatalogo_(encabezados) {
     }
   });
 
-  const faltantes = CAMPOS_CATALOGO_OBLIGATORIOS.filter(function (campo) {
+  const faltantes = (obligatorios || []).filter(function (campo) {
     return indices[campo] === -1;
   });
 
   return { indices: indices, faltantes: faltantes };
+}
+
+function mapearColumnasCatalogo_(encabezados) {
+  return mapearPorAlias_(encabezados, CAMPOS_CATALOGO, CAMPOS_CATALOGO_OBLIGATORIOS);
 }
 
 // Limpia un valor del catálogo: espacios sobrantes al inicio y al final, que
@@ -3394,6 +3402,386 @@ function diagnosticarPedidos() {
   Logger.log(lineas.join("\n"));
   resultado.informe = lineas.join("\n");
   return resultado;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// COPIAR SOLICITUDES DE UN ARCHIVO A OTRO
+// ════════════════════════════════════════════════════════════════════════
+// Para cuando las solicitudes quedaron registradas en una hoja que no es la
+// definitiva (otra implementación, una copia de pruebas) y hay que llevarlas
+// a la buena sin perder nada ni duplicar.
+//
+// CÓMO SE USA
+//   1. Rellena las tres constantes de abajo.
+//   2. Ejecuta revisarCopiaDeSolicitudes(). No escribe nada: muestra
+//      exactamente qué se copiaría y qué se dejaría fuera, y por qué.
+//   3. Si el informe cuadra, ejecuta copiarSolicitudes().
+//
+// LO QUE HACE Y LO QUE NO
+//   · COPIA, no mueve: el archivo de origen queda intacto. Borrar allí es una
+//     decisión aparte, que conviene tomar solo después de comprobar el
+//     resultado en el destino.
+//   · Las columnas del origen se reconocen POR NOMBRE, no por posición: un
+//     archivo de pruebas puede tener las columnas en otro orden, y copiar a
+//     ciegas metería el documento donde va el correo.
+//   · Una solicitud cuyo ID ya esté en el destino NO se vuelve a copiar, así
+//     que ejecutarlo dos veces es inofensivo.
+//   · Las filas SIN ID no se copian por defecto y se informan aparte: sin ID
+//     no aparecerían en el Panel de Biblioteca ni en el historial, y suelen
+//     ser filas de prueba o pegadas a mano. Para incluirlas hay una función
+//     específica que les asigna un ID.
+// ────────────────────────────────────────────────────────────────────────
+
+// ── Rellenar antes de ejecutar ──────────────────────────────────────────
+// Los IDs son la parte larga de la URL de cada hoja:
+// docs.google.com/spreadsheets/d/ESTO_DE_AQUI/edit
+const COPIA_ID_ORIGEN = '';   // hoja donde están hoy las solicitudes
+const COPIA_ID_DESTINO = '';  // hoja definitiva
+const COPIA_FECHA = '';       // 'dd/MM/aaaa' para un solo día; vacío = todas
+
+// Campos de la hoja de solicitudes y los encabezados que los identifican.
+const CAMPOS_PEDIDOS = [
+  { campo: 'fecha',       alias: ['fecha'] },
+  { campo: 'sede',        alias: ['sede'] },
+  { campo: 'nombre',      alias: ['nombre', 'nombrecompleto'] },
+  { campo: 'documento',   alias: ['documento', 'numerodedocumento', 'nodocumento'] },
+  { campo: 'email',       alias: ['email', 'correo', 'correoelectronico'] },
+  { campo: 'tipoUsuario', alias: ['tipodeusuario', 'tipousuario'] },
+  { campo: 'facultad',    alias: ['facultad'] },
+  { campo: 'programa',    alias: ['programa', 'programaacademico'] },
+  { campo: 'asignatura',  alias: ['asignatura'] },
+  { campo: 'titulo',      alias: ['titulo'] },
+  { campo: 'autor',       alias: ['autor'] },
+  { campo: 'categoria',   alias: ['categoria', 'tematica', 'tema', 'area'] },
+  { campo: 'isbn',        alias: ['isbn'] },
+  { campo: 'proveedor',   alias: ['proveedor'] },
+  { campo: 'precio',      alias: ['precio', 'preciounit', 'preciounitario'] },
+  { campo: 'cantidad',    alias: ['cantidad', 'ejemplares'] },
+  { campo: 'idSolicitud', alias: ['idsolicitud', 'id'] },
+  { campo: 'estado',      alias: ['estado'] },
+  { campo: 'origen',      alias: ['origen'] }
+];
+const CAMPOS_PEDIDOS_OBLIGATORIOS = ['fecha', 'titulo'];
+
+function mapearColumnasPedidos_(encabezados) {
+  return mapearPorAlias_(encabezados, CAMPOS_PEDIDOS, CAMPOS_PEDIDOS_OBLIGATORIOS);
+}
+
+function abrirHojaDeSolicitudes_(id, rol) {
+  if (!id) {
+    throw new Error("Falta el ID de la hoja de " + rol + ". Rellena COPIA_ID_ORIGEN y " +
+      "COPIA_ID_DESTINO al principio de este archivo.");
+  }
+  let libro;
+  try {
+    libro = SpreadsheetApp.openById(id);
+  } catch (err) {
+    throw new Error("No se pudo abrir la hoja de " + rol + " (" + id + "). " +
+      "Revisa que el ID sea correcto y que esta cuenta tenga acceso. Detalle: " + err.message);
+  }
+  return libro;
+}
+
+// Lee el origen, mapea sus columnas y clasifica cada fila. No escribe nada.
+function analizarCopiaSolicitudes_() {
+  const libroOrigen = abrirHojaDeSolicitudes_(COPIA_ID_ORIGEN, 'origen');
+  const libroDestino = abrirHojaDeSolicitudes_(COPIA_ID_DESTINO, 'destino');
+
+  if (COPIA_ID_ORIGEN === COPIA_ID_DESTINO) {
+    throw new Error("El origen y el destino son la misma hoja. No hay nada que copiar.");
+  }
+
+  const hojaOrigen = libroOrigen.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+  if (!hojaOrigen || hojaOrigen.getLastRow() < 2) {
+    throw new Error("La hoja de origen no tiene una pestaña '" + NOMBRE_HOJA_PEDIDOS + "' con datos.");
+  }
+
+  const valores = hojaOrigen.getDataRange().getValues();
+  const mapeo = mapearColumnasPedidos_(valores[0]);
+  if (mapeo.faltantes.length) {
+    throw new Error("A la pestaña '" + NOMBRE_HOJA_PEDIDOS + "' del origen le faltan columnas " +
+      "reconocibles: " + mapeo.faltantes.join(', ') + ". Revisa su fila de encabezados.");
+  }
+
+  // IDs que ya están en el destino: son los que no hay que volver a copiar.
+  const hojaDestino = libroDestino.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+  const idsDestino = {};
+  if (hojaDestino && hojaDestino.getLastRow() > 1) {
+    hojaDestino.getRange(2, COL_PEDIDO_ID, hojaDestino.getLastRow() - 1, 1)
+      .getValues().forEach(function (f) {
+        if (f[0]) idsDestino[String(f[0]).trim()] = true;
+      });
+  }
+
+  const indices = mapeo.indices;
+  const leer = function (fila, campo) {
+    const pos = indices[campo];
+    if (pos === -1 || pos >= fila.length) return '';
+    const v = fila[pos];
+    return (v === null || v === undefined) ? '' : v;
+  };
+
+  const resultado = {
+    nombreOrigen: libroOrigen.getName(),
+    nombreDestino: libroDestino.getName(),
+    filasLeidas: valores.length - 1,
+    fueraDeFecha: 0,
+    porCopiar: [],          // filas listas para escribir
+    idsPorCopiar: {},
+    yaEnDestino: {},
+    sinId: [],              // {fila, fecha, titulo}
+    diasEncontrados: {}
+  };
+
+  for (let i = 1; i < valores.length; i++) {
+    const fila = valores[i];
+    const celdaFecha = leer(fila, 'fecha');
+    const fecha = (celdaFecha instanceof Date) ? celdaFecha : new Date(celdaFecha);
+    const fechaValida = celdaFecha !== '' && !isNaN(fecha.getTime());
+
+    // Filtro por día, si se pidió uno concreto.
+    if (COPIA_FECHA) {
+      if (!fechaValida) { resultado.fueraDeFecha++; continue; }
+      if (Utilities.formatDate(fecha, "GMT-5", "dd/MM/yyyy") !== COPIA_FECHA) {
+        resultado.fueraDeFecha++; continue;
+      }
+    }
+
+    if (fechaValida) {
+      const dia = Utilities.formatDate(fecha, "GMT-5", "yyyy-MM-dd");
+      resultado.diasEncontrados[dia] = (resultado.diasEncontrados[dia] || 0) + 1;
+    }
+
+    const id = String(leer(fila, 'idSolicitud') || '').trim();
+    const titulo = String(leer(fila, 'titulo') || '').trim();
+
+    if (!id) {
+      resultado.sinId.push({
+        fila: i + 1,
+        fecha: fechaValida ? Utilities.formatDate(fecha, "GMT-5", "dd/MM/yyyy HH:mm") : '(sin fecha)',
+        titulo: titulo
+      });
+      continue;
+    }
+    if (idsDestino[id]) { resultado.yaEnDestino[id] = true; continue; }
+
+    resultado.idsPorCopiar[id] = true;
+    resultado.porCopiar.push(construirFilaPedido_({
+      fecha: fechaValida ? fecha : celdaFecha,
+      sede: leer(fila, 'sede') || CIUDAD,
+      nombre: leer(fila, 'nombre'),
+      documento: leer(fila, 'documento'),
+      email: leer(fila, 'email'),
+      tipoUsuario: leer(fila, 'tipoUsuario'),
+      facultad: leer(fila, 'facultad'),
+      programa: leer(fila, 'programa'),
+      asignatura: leer(fila, 'asignatura'),
+      titulo: titulo,
+      autor: leer(fila, 'autor'),
+      categoria: leer(fila, 'categoria'),
+      isbn: leer(fila, 'isbn'),
+      proveedor: leer(fila, 'proveedor'),
+      precio: Number(leer(fila, 'precio')) || 0,
+      cantidad: Math.max(1, Math.round(Number(leer(fila, 'cantidad'))) || 1),
+      idSolicitud: id,
+      estado: leer(fila, 'estado') || 'Pendiente',
+      origen: leer(fila, 'origen') || ORIGEN_WEB
+    }));
+  }
+
+  return resultado;
+}
+
+// Revisión previa. NO escribe nada.
+function revisarCopiaDeSolicitudes() {
+  exigirAdministrador_();
+  const a = analizarCopiaSolicitudes_();
+  const lineas = [];
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" Revisión de la copia (no se escribió nada)");
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push("");
+  lineas.push("Origen:  " + a.nombreOrigen);
+  lineas.push("Destino: " + a.nombreDestino);
+  lineas.push("Filtro de fecha: " + (COPIA_FECHA || "sin filtro (todas las fechas)"));
+  lineas.push("");
+  lineas.push("Filas leídas en el origen: " + a.filasLeidas);
+  if (COPIA_FECHA) lineas.push("  · Descartadas por ser de otro día: " + a.fueraDeFecha);
+
+  const dias = Object.keys(a.diasEncontrados).sort();
+  if (dias.length) {
+    lineas.push("");
+    lineas.push("Días encontrados dentro del filtro:");
+    dias.forEach(function (d) { lineas.push("  " + d + " → " + a.diasEncontrados[d] + " fila(s)"); });
+  }
+
+  lineas.push("");
+  lineas.push("SE COPIARÍAN: " + a.porCopiar.length + " fila(s), en " +
+    Object.keys(a.idsPorCopiar).length + " solicitud(es)");
+  Object.keys(a.idsPorCopiar).sort().forEach(function (id) { lineas.push("  · " + id); });
+
+  const yaEstaban = Object.keys(a.yaEnDestino);
+  if (yaEstaban.length) {
+    lineas.push("");
+    lineas.push("YA ESTABAN EN EL DESTINO (no se tocan): " + yaEstaban.length + " solicitud(es)");
+    yaEstaban.sort().forEach(function (id) { lineas.push("  · " + id); });
+  }
+
+  if (a.sinId.length) {
+    lineas.push("");
+    lineas.push("NO SE COPIARÍAN POR NO TENER ID: " + a.sinId.length + " fila(s)");
+    lineas.push("  Sin ID no aparecerían en el Panel de Biblioteca ni en el historial,");
+    lineas.push("  y suelen ser filas de prueba o pegadas a mano. Revísalas en el origen:");
+    a.sinId.slice(0, 25).forEach(function (f) {
+      lineas.push("  · fila " + f.fila + " · " + f.fecha + " · " + (f.titulo || '(sin título)'));
+    });
+    if (a.sinId.length > 25) lineas.push("  · …y " + (a.sinId.length - 25) + " más.");
+    lineas.push("");
+    lineas.push("  Si compruebas que SÍ son solicitudes buenas, usa");
+    lineas.push("  copiarSolicitudesIncluyendoLasSinId(): les asigna un ID y las copia.");
+  }
+
+  lineas.push("");
+  lineas.push("Si el informe cuadra, ejecuta copiarSolicitudes().");
+  lineas.push("══════════════════════════════════════════════════");
+
+  Logger.log(lineas.join("\n"));
+  return {
+    ok: true,
+    porCopiar: a.porCopiar.length,
+    solicitudes: Object.keys(a.idsPorCopiar).length,
+    yaEnDestino: yaEstaban.length,
+    sinId: a.sinId.length,
+    informe: lineas.join("\n")
+  };
+}
+
+function copiarSolicitudes() {
+  return ejecutarCopiaDeSolicitudes_(false);
+}
+
+// Incluye también las filas sin ID, asignándoles uno determinístico a partir
+// de su contenido, para que ejecutarlo dos veces no las duplique.
+function copiarSolicitudesIncluyendoLasSinId() {
+  return ejecutarCopiaDeSolicitudes_(true);
+}
+
+function ejecutarCopiaDeSolicitudes_(incluirSinId) {
+  exigirAdministrador_();
+
+  const a = analizarCopiaSolicitudes_();
+  const filas = a.porCopiar.slice();
+
+  if (incluirSinId && a.sinId.length) {
+    // Se releen esas filas para poder copiarlas completas: el análisis solo
+    // guarda de ellas lo necesario para listarlas.
+    const libroOrigen = abrirHojaDeSolicitudes_(COPIA_ID_ORIGEN, 'origen');
+    const valores = libroOrigen.getSheetByName(NOMBRE_HOJA_PEDIDOS).getDataRange().getValues();
+    const indices = mapearColumnasPedidos_(valores[0]).indices;
+    const leer = function (fila, campo) {
+      const pos = indices[campo];
+      if (pos === -1 || pos >= fila.length) return '';
+      const v = fila[pos];
+      return (v === null || v === undefined) ? '' : v;
+    };
+
+    a.sinId.forEach(function (ref) {
+      const fila = valores[ref.fila - 1];
+      const celdaFecha = leer(fila, 'fecha');
+      const fecha = (celdaFecha instanceof Date) ? celdaFecha : new Date(celdaFecha);
+      const fechaValida = celdaFecha !== '' && !isNaN(fecha.getTime());
+      const fechaFinal = fechaValida ? fecha : new Date();
+
+      // Mismo criterio que el cargue masivo: el ID sale del contenido, así que
+      // repetir la copia produce los mismos IDs y no duplica.
+      const clave = [
+        Utilities.formatDate(fechaFinal, "GMT-5", "yyyyMMdd"),
+        String(leer(fila, 'documento')).toLowerCase(),
+        String(leer(fila, 'email')).toLowerCase(),
+        normalizarTextoCargue_(String(leer(fila, 'asignatura')))
+      ].join('|');
+      const idGenerado = "SOL-REC-" + Utilities.formatDate(fechaFinal, "GMT-5", "yyyyMMdd") +
+        "-" + hashCortoCargue_(clave);
+
+      filas.push(construirFilaPedido_({
+        fecha: fechaFinal,
+        sede: leer(fila, 'sede') || CIUDAD,
+        nombre: leer(fila, 'nombre'),
+        documento: leer(fila, 'documento'),
+        email: leer(fila, 'email'),
+        tipoUsuario: leer(fila, 'tipoUsuario'),
+        facultad: leer(fila, 'facultad'),
+        programa: leer(fila, 'programa'),
+        asignatura: leer(fila, 'asignatura'),
+        titulo: leer(fila, 'titulo'),
+        autor: leer(fila, 'autor'),
+        categoria: leer(fila, 'categoria'),
+        isbn: leer(fila, 'isbn'),
+        proveedor: leer(fila, 'proveedor'),
+        precio: Number(leer(fila, 'precio')) || 0,
+        cantidad: Math.max(1, Math.round(Number(leer(fila, 'cantidad'))) || 1),
+        idSolicitud: idGenerado,
+        estado: leer(fila, 'estado') || 'Pendiente',
+        origen: 'Recuperado'
+      }));
+    });
+  }
+
+  if (!filas.length) {
+    const mensaje = a.sinId.length && !incluirSinId
+      ? "No se copió nada: lo único pendiente son " + a.sinId.length + " fila(s) sin ID. " +
+        "Revísalas y, si son buenas, usa copiarSolicitudesIncluyendoLasSinId()."
+      : "No se copió nada: no hay solicitudes nuevas que llevar al destino.";
+    Logger.log(mensaje);
+    return { ok: true, escritas: 0, mensaje: mensaje };
+  }
+
+  const libroDestino = abrirHojaDeSolicitudes_(COPIA_ID_DESTINO, 'destino');
+  const candado = LockService.getScriptLock();
+  try {
+    candado.waitLock(30000);
+  } catch (err) {
+    throw new Error("El sistema está ocupado. Espera unos segundos y vuelve a intentar (no se escribió nada).");
+  }
+
+  let escritas = 0;
+  try {
+    let hoja = libroDestino.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+    if (!hoja) hoja = libroDestino.insertSheet(NOMBRE_HOJA_PEDIDOS);
+    inicializarHojaPedidos_(hoja);
+
+    // Se releen los IDs del destino con el candado ya tomado, por si algo
+    // entró entre la revisión y la confirmación.
+    const idsAhora = {};
+    if (hoja.getLastRow() > 1) {
+      hoja.getRange(2, COL_PEDIDO_ID, hoja.getLastRow() - 1, 1).getValues()
+        .forEach(function (f) { if (f[0]) idsAhora[String(f[0]).trim()] = true; });
+    }
+    const definitivas = filas.filter(function (f) {
+      return !idsAhora[String(f[COL_PEDIDO_ID - 1]).trim()];
+    });
+
+    if (definitivas.length) {
+      hoja.getRange(hoja.getLastRow() + 1, 1, definitivas.length, TOTAL_COLUMNAS_PEDIDOS)
+        .setValues(definitivas);
+      escritas = definitivas.length;
+    }
+  } finally {
+    candado.releaseLock();
+  }
+
+  const lineas = [];
+  lineas.push("Copia terminada: " + escritas + " fila(s) escritas en '" + a.nombreDestino + "'.");
+  lineas.push("El archivo de origen NO se modificó: las filas siguen ahí.");
+  lineas.push("Comprueba el resultado en el destino antes de borrar nada en el origen.");
+  if (a.sinId.length && !incluirSinId) {
+    lineas.push("Quedaron fuera " + a.sinId.length + " fila(s) sin ID (ver revisarCopiaDeSolicitudes()).");
+  }
+  Logger.log(lineas.join("\n"));
+
+  return { ok: true, escritas: escritas, sinIdOmitidas: incluirSinId ? 0 : a.sinId.length,
+           informe: lineas.join("\n") };
 }
 
 // ────────────────────────────────────────────────────────────────────────
