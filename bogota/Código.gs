@@ -3183,6 +3183,181 @@ function obtenerUrlsSistema() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// DIAGNÓSTICO DE SOLICITUDES
+// ────────────────────────────────────────────────────────────────────────
+// Para cuando alguien dice "registramos solicitudes y no aparecen".
+//
+// Responde a la pregunta anterior a cualquier otra: ¿a qué archivo está
+// escribiendo ESTE proyecto? Un mismo código puede estar publicado en varias
+// implementaciones y un proyecto copiado apunta a otra hoja de cálculo; lo
+// más frecuente es que los datos sí se escribieran, pero en otro archivo.
+//
+// Después muestra qué hay realmente en la pestaña de solicitudes: cuántas
+// filas, de qué fechas, y si hay filas ocultas o un filtro puesto que las
+// esté escondiendo a la vista.
+//
+// No escribe nada y no muestra datos personales: solo fechas, conteos e IDs.
+// ────────────────────────────────────────────────────────────────────────
+
+function diagnosticarPedidos() {
+  exigirAdministrador_();
+
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  const lineas = [];
+  const resultado = { ok: true };
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" Diagnóstico de solicitudes · " + CIUDAD);
+  lineas.push("══════════════════════════════════════════════════");
+
+  // ── 1. A qué archivo escribe este proyecto ───────────────────────────
+  // Si los datos "no aparecen", lo primero es descartar que se estén
+  // buscando en un archivo distinto del que usa el script.
+  lineas.push("");
+  lineas.push("1) ESTE PROYECTO ESCRIBE EN:");
+  lineas.push("   Nombre: " + libro.getName());
+  lineas.push("   ID:     " + libro.getId());
+  lineas.push("   URL:    " + libro.getUrl());
+  lineas.push("   Compara ese ID con el del archivo donde estás buscando.");
+  lineas.push("   Si no coinciden, los datos están en el otro archivo.");
+
+  resultado.hojaDeCalculo = { nombre: libro.getName(), id: libro.getId(), url: libro.getUrl() };
+
+  lineas.push("");
+  lineas.push("   Pestañas del archivo:");
+  libro.getSheets().forEach(function (h) {
+    lineas.push("     · " + h.getName() + "  (" + h.getLastRow() + " filas)");
+  });
+
+  // ── 2. Qué hay en la pestaña de solicitudes ──────────────────────────
+  lineas.push("");
+  lineas.push("2) PESTAÑA '" + NOMBRE_HOJA_PEDIDOS + "'");
+
+  const hoja = libro.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+  if (!hoja) {
+    resultado.ok = false;
+    lineas.push("   ✗ No existe en este archivo.");
+    Logger.log(lineas.join("\n"));
+    resultado.informe = lineas.join("\n");
+    return resultado;
+  }
+
+  const ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) {
+    resultado.ok = false;
+    resultado.totalFilas = 0;
+    lineas.push("   ✗ Está vacía: solo tiene la fila de encabezados.");
+    lineas.push("     Si esperabas encontrar solicitudes aquí, revisa el punto 1:");
+    lineas.push("     lo más probable es que se escribieran en otro archivo.");
+    Logger.log(lineas.join("\n"));
+    resultado.informe = lineas.join("\n");
+    return resultado;
+  }
+
+  const valores = hoja.getRange(2, 1, ultimaFila - 1, TOTAL_COLUMNAS_PEDIDOS).getValues();
+  const porDia = {};
+  const solicitudes = {};
+  let sinFecha = 0;
+  let masAntigua = null;
+  let masReciente = null;
+
+  valores.forEach(function (fila) {
+    const id = fila[COL_PEDIDO_ID - 1];
+    const celdaFecha = fila[COL_PEDIDO_FECHA - 1];
+    const fecha = (celdaFecha instanceof Date) ? celdaFecha : new Date(celdaFecha);
+
+    if (!celdaFecha || isNaN(fecha.getTime())) {
+      sinFecha++;
+    } else {
+      const dia = Utilities.formatDate(fecha, "GMT-5", "yyyy-MM-dd");
+      if (!porDia[dia]) porDia[dia] = { filas: 0, ids: {} };
+      porDia[dia].filas++;
+      if (id) porDia[dia].ids[id] = true;
+      if (!masAntigua || fecha < masAntigua) masAntigua = fecha;
+      if (!masReciente || fecha > masReciente) masReciente = fecha;
+    }
+    if (id) solicitudes[id] = true;
+  });
+
+  resultado.totalFilas = valores.length;
+  resultado.totalSolicitudes = Object.keys(solicitudes).length;
+
+  lineas.push("   Filas de datos: " + valores.length);
+  lineas.push("   Solicitudes distintas (por ID): " + Object.keys(solicitudes).length);
+  if (sinFecha) lineas.push("   ⚠ Filas sin fecha legible: " + sinFecha);
+  if (masAntigua) {
+    lineas.push("   Fecha más antigua: " + Utilities.formatDate(masAntigua, "GMT-5", "dd/MM/yyyy HH:mm"));
+    lineas.push("   Fecha más reciente: " + Utilities.formatDate(masReciente, "GMT-5", "dd/MM/yyyy HH:mm"));
+  }
+
+  lineas.push("");
+  lineas.push("   Solicitudes por día:");
+  const dias = Object.keys(porDia).sort();
+  dias.forEach(function (dia) {
+    lineas.push("     " + dia + " → " + porDia[dia].filas + " fila(s), " +
+      Object.keys(porDia[dia].ids).length + " solicitud(es)");
+  });
+  resultado.porDia = dias.map(function (d) {
+    return { dia: d, filas: porDia[d].filas, solicitudes: Object.keys(porDia[d].ids).length };
+  });
+
+  // ── 3. ¿Hay algo escondiendo filas? ──────────────────────────────────
+  // Un filtro puesto o unas filas ocultas hacen que los datos estén ahí
+  // pero no se vean, que es exactamente el síntoma que se reporta.
+  lineas.push("");
+  lineas.push("3) ¿HAY FILAS ESCONDIDAS?");
+
+  let filtro = null;
+  try { filtro = hoja.getFilter(); } catch (err) { filtro = null; }
+  if (filtro) {
+    resultado.tieneFiltro = true;
+    lineas.push("   ⚠ La pestaña TIENE UN FILTRO puesto.");
+    lineas.push("     Un filtro puede estar ocultando filas que sí existen.");
+    lineas.push("     Quítalo con Datos > Quitar filtro y vuelve a mirar.");
+  } else {
+    lineas.push("   · No hay filtro puesto.");
+  }
+
+  // Revisar fila por fila es costoso; con muchas filas no vale la pena.
+  if (ultimaFila <= 5000) {
+    let ocultas = 0;
+    for (let f = 2; f <= ultimaFila; f++) {
+      try { if (hoja.isRowHiddenByUser(f)) ocultas++; } catch (err) { break; }
+    }
+    resultado.filasOcultas = ocultas;
+    if (ocultas) {
+      lineas.push("   ⚠ Filas ocultas a mano: " + ocultas);
+      lineas.push("     Selecciona todas las filas y usa Formato > Mostrar filas.");
+    } else {
+      lineas.push("   · No hay filas ocultas a mano.");
+    }
+  } else {
+    lineas.push("   · Demasiadas filas para revisar si hay ocultas (más de 5.000).");
+  }
+
+  // ── 4. Qué revisar si falta algo ─────────────────────────────────────
+  lineas.push("");
+  lineas.push("4) SI FALTAN SOLICITUDES QUE SÍ SE REGISTRARON");
+  lineas.push("   En registrarPedido(), el correo a la biblioteca se envía DESPUÉS");
+  lineas.push("   de escribir en la hoja. Así que:");
+  lineas.push("");
+  lineas.push("   · Si llegaron los correos 'Nueva solicitud de catálogo [SOL-...]',");
+  lineas.push("     la escritura SÍ ocurrió, y esos correos traen la solicitud");
+  lineas.push("     completa: se puede reconstruir desde ahí.");
+  lineas.push("   · Si NO llegaron correos de ese día, la escritura no llegó a");
+  lineas.push("     completarse o nadie llegó a enviar el formulario.");
+  lineas.push("");
+  lineas.push("   Para confirmarlo: en el editor, menú izquierdo > Ejecuciones,");
+  lineas.push("   y filtra por fecha. Ahí aparece cada ejecución de registrarPedido");
+  lineas.push("   con su hora y si terminó bien o con error.");
+  lineas.push("══════════════════════════════════════════════════");
+
+  Logger.log(lineas.join("\n"));
+  resultado.informe = lineas.join("\n");
+  return resultado;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // MEDICIÓN DE RENDIMIENTO
 // ────────────────────────────────────────────────────────────────────────
 // Ejecutar medirRendimiento() desde el editor y leer el "Registro de
