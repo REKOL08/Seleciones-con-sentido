@@ -3410,18 +3410,38 @@ function diagnosticarPedidos() {
 // cuenta que la ejecuta) y no muestra datos personales: nombre del archivo,
 // enlace, conteos y fechas.
 //
-// Puede tardar: abrir cada hoja de cálculo cuesta. Se revisan como máximo
-// BUSQUEDA_MAX_ARCHIVOS y se corta sola antes del límite de ejecución de
-// Apps Script, informando hasta dónde llegó.
+// Abrir una hoja de cálculo cuesta cerca de un segundo, y una cuenta
+// institucional puede ver miles: recorrerlas todas no termina nunca. Por eso
+// solo se miran las MODIFICADAS RECIENTEMENTE, que es donde puede estar lo
+// que se busca: si una solicitud se escribió el día X, su archivo quedó
+// modificado ese día o después.
+//
+// Además va informando del avance con console.log, que en Apps Script se ve
+// en Ejecuciones MIENTRAS corre, en vez de solo al terminar. Así se nota que
+// está trabajando y no colgada.
 // ────────────────────────────────────────────────────────────────────────
 
 const BUSQUEDA_MAX_ARCHIVOS = 150;
+// Ventana por defecto: 30 días hacia atrás cubre cualquier jornada reciente
+// sin arrastrar el archivo histórico entero.
+const BUSQUEDA_DIAS_ATRAS = 30;
 // Apps Script corta una ejecución a los 6 minutos. Paramos antes para poder
 // entregar el informe de lo que se alcanzó a revisar, en vez de morir sin dar
 // nada.
 const BUSQUEDA_MS_MAXIMO = 4 * 60 * 1000;
 
 function buscarSolicitudesPerdidas() {
+  return buscarSolicitudesDesdeHaceDias_(BUSQUEDA_DIAS_ATRAS);
+}
+
+// Si 30 días no alcanzan, ejecutar esta otra: mira TODAS las hojas de cálculo
+// que vea la cuenta. Puede no terminar si son muchas; se corta sola e informa.
+function buscarSolicitudesEnTodoElDrive() {
+  return buscarSolicitudesDesdeHaceDias_(0);
+}
+
+// diasAtras = 0 significa "sin filtro de fecha".
+function buscarSolicitudesDesdeHaceDias_(diasAtras) {
   exigirAdministrador_();
 
   const inicio = new Date().getTime();
@@ -3434,17 +3454,45 @@ function buscarSolicitudesPerdidas() {
   lineas.push("══════════════════════════════════════════════════");
   lineas.push(" ¿Dónde quedaron las solicitudes?");
   lineas.push("══════════════════════════════════════════════════");
-  lineas.push("");
-  lineas.push("Buscando hojas de cálculo con una pestaña '" + NOMBRE_HOJA_PEDIDOS + "'…");
-
   const archivoActual = SpreadsheetApp.getActiveSpreadsheet().getId();
-  const archivos = DriveApp.getFilesByType(MimeType.GOOGLE_SHEETS);
+
+  // Solo hojas de cálculo modificadas dentro de la ventana. Si la consulta
+  // fallara (la sintaxis la interpreta Drive, no este script), se cae al
+  // listado completo en vez de quedarse sin buscar.
+  let archivos;
+  let descripcionBusqueda;
+  if (diasAtras > 0) {
+    const desde = new Date(new Date().getTime() - diasAtras * 24 * 60 * 60 * 1000);
+    const desdeTexto = Utilities.formatDate(desde, "GMT", "yyyy-MM-dd'T'HH:mm:ss");
+    descripcionBusqueda = "modificadas en los últimos " + diasAtras + " días (desde " +
+      Utilities.formatDate(desde, "GMT-5", "dd/MM/yyyy") + ")";
+    try {
+      archivos = DriveApp.searchFiles(
+        "mimeType = '" + MimeType.GOOGLE_SHEETS + "' and modifiedDate > '" + desdeTexto + "'");
+    } catch (err) {
+      descripcionBusqueda = "todas (no se pudo filtrar por fecha: " + err.message + ")";
+      archivos = DriveApp.getFilesByType(MimeType.GOOGLE_SHEETS);
+    }
+  } else {
+    descripcionBusqueda = "todas las que vea esta cuenta";
+    archivos = DriveApp.getFilesByType(MimeType.GOOGLE_SHEETS);
+  }
+
+  lineas.push("");
+  lineas.push("Hojas de cálculo a revisar: " + descripcionBusqueda);
+  lineas.push("Buscando una pestaña '" + NOMBRE_HOJA_PEDIDOS + "'…");
+  console.log('Buscando hojas de cálculo ' + descripcionBusqueda + '…');
 
   while (archivos.hasNext() && revisados < BUSQUEDA_MAX_ARCHIVOS) {
     if (new Date().getTime() - inicio > BUSQUEDA_MS_MAXIMO) { cortadoPorTiempo = true; break; }
 
     const archivo = archivos.next();
     revisados++;
+    // Avance visible mientras corre, para no dejar la impresión de que se colgó.
+    if (revisados % 10 === 0) {
+      console.log('Revisadas ' + revisados + ' hojas… (' +
+        Math.round((new Date().getTime() - inicio) / 1000) + ' s)');
+    }
 
     let libro;
     try {
@@ -3502,8 +3550,8 @@ function buscarSolicitudesPerdidas() {
   lineas.push("Hojas de cálculo revisadas: " + revisados +
     (sinAcceso ? " (" + sinAcceso + " sin permiso de lectura)" : ""));
   if (cortadoPorTiempo) {
-    lineas.push("⚠ Se cortó por tiempo antes de revisarlas todas. Vuelve a ejecutarla");
-    lineas.push("  si no aparece lo que buscas.");
+    lineas.push("⚠ Se cortó por tiempo antes de revisarlas todas: esta cuenta ve");
+    lineas.push("  demasiadas hojas de cálculo. Lo encontrado abajo sigue siendo válido.");
   }
   lineas.push("");
 
@@ -3511,9 +3559,11 @@ function buscarSolicitudesPerdidas() {
     lineas.push("No se encontró NINGUNA hoja con una pestaña '" + NOMBRE_HOJA_PEDIDOS + "' con datos.");
     lineas.push("");
     lineas.push("Puede significar que:");
+    lineas.push("  · el archivo se modificó por última vez fuera de la ventana buscada");
+    lineas.push("    → ejecuta buscarSolicitudesEnTodoElDrive();");
     lineas.push("  · el archivo pertenece a otra cuenta y esta no lo ve;");
     lineas.push("  · nunca llegó a registrarse ninguna solicitud.");
-    lineas.push("Revisa Ejecuciones en el editor para distinguir entre las dos.");
+    lineas.push("Revisa Ejecuciones en el editor para distinguir entre las dos últimas.");
   } else {
     lineas.push("ARCHIVOS CON SOLICITUDES: " + hallazgos.length);
     // El que más solicitudes tenga primero: suele ser el que se está buscando.
