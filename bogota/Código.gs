@@ -3397,6 +3397,163 @@ function diagnosticarPedidos() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// BÚSQUEDA DE SOLICITUDES EN OTROS ARCHIVOS
+// ────────────────────────────────────────────────────────────────────────
+// Para cuando hay varios proyectos de Apps Script o varias copias de la hoja
+// y no se sabe en cuál quedaron las solicitudes.
+//
+// Recorre las hojas de cálculo del Drive de quien la ejecuta, busca las que
+// tengan una pestaña de solicitudes, y dice de cada una cuántas hay y de qué
+// fechas. Así no hay que abrir archivo por archivo.
+//
+// No escribe nada, no abre archivos ajenos (solo los que ya puede ver la
+// cuenta que la ejecuta) y no muestra datos personales: nombre del archivo,
+// enlace, conteos y fechas.
+//
+// Puede tardar: abrir cada hoja de cálculo cuesta. Se revisan como máximo
+// BUSQUEDA_MAX_ARCHIVOS y se corta sola antes del límite de ejecución de
+// Apps Script, informando hasta dónde llegó.
+// ────────────────────────────────────────────────────────────────────────
+
+const BUSQUEDA_MAX_ARCHIVOS = 150;
+// Apps Script corta una ejecución a los 6 minutos. Paramos antes para poder
+// entregar el informe de lo que se alcanzó a revisar, en vez de morir sin dar
+// nada.
+const BUSQUEDA_MS_MAXIMO = 4 * 60 * 1000;
+
+function buscarSolicitudesPerdidas() {
+  exigirAdministrador_();
+
+  const inicio = new Date().getTime();
+  const lineas = [];
+  const hallazgos = [];
+  let revisados = 0;
+  let sinAcceso = 0;
+  let cortadoPorTiempo = false;
+
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push(" ¿Dónde quedaron las solicitudes?");
+  lineas.push("══════════════════════════════════════════════════");
+  lineas.push("");
+  lineas.push("Buscando hojas de cálculo con una pestaña '" + NOMBRE_HOJA_PEDIDOS + "'…");
+
+  const archivoActual = SpreadsheetApp.getActiveSpreadsheet().getId();
+  const archivos = DriveApp.getFilesByType(MimeType.GOOGLE_SHEETS);
+
+  while (archivos.hasNext() && revisados < BUSQUEDA_MAX_ARCHIVOS) {
+    if (new Date().getTime() - inicio > BUSQUEDA_MS_MAXIMO) { cortadoPorTiempo = true; break; }
+
+    const archivo = archivos.next();
+    revisados++;
+
+    let libro;
+    try {
+      libro = SpreadsheetApp.openById(archivo.getId());
+    } catch (err) {
+      sinAcceso++;   // sin permiso de lectura: se salta sin ruido
+      continue;
+    }
+
+    let hoja;
+    try {
+      hoja = libro.getSheetByName(NOMBRE_HOJA_PEDIDOS);
+    } catch (err) {
+      continue;
+    }
+    if (!hoja || hoja.getLastRow() < 2) continue;
+
+    // Solo se leen las columnas de fecha e ID: es lo que hace falta para
+    // identificar el archivo, y evita cargar datos personales en memoria.
+    const totalFilas = hoja.getLastRow() - 1;
+    const fechas = hoja.getRange(2, COL_PEDIDO_FECHA, totalFilas, 1).getValues();
+    const ids = hoja.getRange(2, COL_PEDIDO_ID, totalFilas, 1).getValues();
+
+    const porDia = {};
+    const solicitudes = {};
+    let masAntigua = null;
+    let masReciente = null;
+
+    for (let i = 0; i < totalFilas; i++) {
+      const celda = fechas[i][0];
+      const fecha = (celda instanceof Date) ? celda : new Date(celda);
+      if (celda && !isNaN(fecha.getTime())) {
+        const dia = Utilities.formatDate(fecha, "GMT-5", "yyyy-MM-dd");
+        porDia[dia] = (porDia[dia] || 0) + 1;
+        if (!masAntigua || fecha < masAntigua) masAntigua = fecha;
+        if (!masReciente || fecha > masReciente) masReciente = fecha;
+      }
+      if (ids[i][0]) solicitudes[ids[i][0]] = true;
+    }
+
+    hallazgos.push({
+      nombre: archivo.getName(),
+      id: archivo.getId(),
+      url: archivo.getUrl(),
+      esElActual: archivo.getId() === archivoActual,
+      filas: totalFilas,
+      solicitudes: Object.keys(solicitudes).length,
+      desde: masAntigua ? Utilities.formatDate(masAntigua, "GMT-5", "dd/MM/yyyy") : '',
+      hasta: masReciente ? Utilities.formatDate(masReciente, "GMT-5", "dd/MM/yyyy") : '',
+      porDia: porDia
+    });
+  }
+
+  lineas.push("");
+  lineas.push("Hojas de cálculo revisadas: " + revisados +
+    (sinAcceso ? " (" + sinAcceso + " sin permiso de lectura)" : ""));
+  if (cortadoPorTiempo) {
+    lineas.push("⚠ Se cortó por tiempo antes de revisarlas todas. Vuelve a ejecutarla");
+    lineas.push("  si no aparece lo que buscas.");
+  }
+  lineas.push("");
+
+  if (!hallazgos.length) {
+    lineas.push("No se encontró NINGUNA hoja con una pestaña '" + NOMBRE_HOJA_PEDIDOS + "' con datos.");
+    lineas.push("");
+    lineas.push("Puede significar que:");
+    lineas.push("  · el archivo pertenece a otra cuenta y esta no lo ve;");
+    lineas.push("  · nunca llegó a registrarse ninguna solicitud.");
+    lineas.push("Revisa Ejecuciones en el editor para distinguir entre las dos.");
+  } else {
+    lineas.push("ARCHIVOS CON SOLICITUDES: " + hallazgos.length);
+    // El que más solicitudes tenga primero: suele ser el que se está buscando.
+    hallazgos.sort(function (a, b) { return b.filas - a.filas; });
+
+    hallazgos.forEach(function (h, i) {
+      lineas.push("");
+      lineas.push(" " + (i + 1) + ". " + h.nombre + (h.esElActual ? "   ← es el archivo de ESTE proyecto" : ""));
+      lineas.push("    ID:  " + h.id);
+      lineas.push("    URL: " + h.url);
+      lineas.push("    " + h.filas + " fila(s) · " + h.solicitudes + " solicitud(es) · del " +
+        h.desde + " al " + h.hasta);
+      const dias = Object.keys(h.porDia).sort();
+      // Con muchos días, el detalle estorba más de lo que ayuda.
+      const aMostrar = dias.length > 12 ? dias.slice(-12) : dias;
+      if (dias.length > 12) lineas.push("    (últimos 12 días con actividad)");
+      aMostrar.forEach(function (d) {
+        lineas.push("      " + d + " → " + h.porDia[d] + " fila(s)");
+      });
+    });
+
+    lineas.push("");
+    lineas.push("Busca arriba el día que falta. El archivo que lo tenga es donde");
+    lineas.push("quedaron esas solicitudes: ábrelo con su URL.");
+  }
+
+  lineas.push("══════════════════════════════════════════════════");
+  Logger.log(lineas.join("\n"));
+
+  return {
+    ok: true,
+    revisados: revisados,
+    sinAcceso: sinAcceso,
+    cortadoPorTiempo: cortadoPorTiempo,
+    hallazgos: hallazgos,
+    informe: lineas.join("\n")
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // MEDICIÓN DE RENDIMIENTO
 // ────────────────────────────────────────────────────────────────────────
 // Ejecutar medirRendimiento() desde el editor y leer el "Registro de
