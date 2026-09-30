@@ -859,7 +859,23 @@ function registrarPedido(datosPedido) {
     libros: librosUnicos,
     total: total
   };
-  enviarCorreoBiblioteca_(datosCorreo);
+  //    El envío va dentro de try/catch A PROPÓSITO: en el paso 3 la solicitud
+  //    YA quedó guardada en la hoja. Si el correo falla (cuota de MailApp
+  //    agotada, CORREO_BIBLIOTECA mal configurado o sin configurar), dejar
+  //    que el error suba haría que la persona viera "no se pudo enviar tu
+  //    solicitud" cuando en realidad sí está registrada: volvería a enviarla
+  //    y quedaría duplicada, y la biblioteca creería que no hay nada. El
+  //    fallo se registra para que quede en Ejecuciones y se avisa al cliente,
+  //    pero la solicitud se da por buena, porque lo es.
+  let avisoCorreo = '';
+  try {
+    enviarCorreoBiblioteca_(datosCorreo);
+  } catch (err) {
+    avisoCorreo = 'Tu solicitud quedó registrada, pero no se pudo enviar la ' +
+      'notificación por correo a la biblioteca. Guarda tu número de solicitud.';
+    Logger.log('AVISO: la solicitud ' + idSolicitud + ' se guardó en la hoja, pero falló ' +
+      'el envío del correo a ' + CORREO_BIBLIOTECA + ': ' + err.message);
+  }
 
   // 5. Devolvemos al cliente los datos de confirmación.
   //    Enviamos la fecha como texto ISO: los objetos Date anidados dentro de
@@ -870,7 +886,8 @@ function registrarPedido(datosPedido) {
     idSolicitud: idSolicitud,
     total: total,
     fecha: fecha.toISOString(),
-    cantidadLibros: librosUnicos.length
+    cantidadLibros: librosUnicos.length,
+    avisoCorreo: avisoCorreo
   };
 }
 
@@ -1283,17 +1300,27 @@ function registrarDeseo(datos) {
     candado.releaseLock();
   }
 
-  enviarCorreoDeseo_({
-    idDeseo: idDeseo, fecha: fecha, sede: sede, nombre: nombre, documento: documento,
-    email: email, tipoUsuario: tipoUsuario, facultad: facultad, programa: programa,
-    asignatura: asignatura, tituloDeseado: tituloDeseado, autorDeseado: autorDeseado,
-    isbnDeseado: isbnDeseado, proveedorDeseado: proveedorDeseado, comentario: comentario,
-    cantidad: cantidad
-  });
+  // Igual que en registrarPedido: la solicitud ya está guardada, así que un
+  // fallo del correo no puede hacerla parecer fallida.
+  let avisoCorreo = '';
+  try {
+    enviarCorreoDeseo_({
+      idDeseo: idDeseo, fecha: fecha, sede: sede, nombre: nombre, documento: documento,
+      email: email, tipoUsuario: tipoUsuario, facultad: facultad, programa: programa,
+      asignatura: asignatura, tituloDeseado: tituloDeseado, autorDeseado: autorDeseado,
+      isbnDeseado: isbnDeseado, proveedorDeseado: proveedorDeseado, comentario: comentario,
+      cantidad: cantidad
+    });
+  } catch (err) {
+    avisoCorreo = 'Tu solicitud quedó registrada, pero no se pudo enviar la ' +
+      'notificación por correo a la biblioteca. Guarda tu número de solicitud.';
+    Logger.log('AVISO: el deseo ' + idDeseo + ' se guardó en la hoja, pero falló el envío ' +
+      'del correo a ' + CORREO_BIBLIOTECA + ': ' + err.message);
+  }
 
   // Igual que registrarPedido: enviamos la fecha como texto ISO para que no
   // se pierda al viajar dentro de la respuesta de google.script.run.
-  return { ok: true, idDeseo: idDeseo, fecha: fecha.toISOString() };
+  return { ok: true, idDeseo: idDeseo, fecha: fecha.toISOString(), avisoCorreo: avisoCorreo };
 }
 
 // ── CORREO A LA BIBLIOTECA (solicitud especial, libro fuera de catálogo) ──
@@ -3037,6 +3064,11 @@ function configurarSistema() {
     const valor = propiedades.getProperty(p.clave);
     if (valor) {
       lineas.push("   ✓ " + p.clave + " configurada");
+      if (p.clave === 'CORREO_BIBLIOTECA' && valor.indexOf('example.org') !== -1) {
+        reporte.ok = false;
+        reporte.problemas.push("CORREO_BIBLIOTECA apunta a una dirección de ejemplo. Nadie recibiría las notificaciones.");
+        lineas.push("     ✗ …pero es una dirección de ejemplo: nadie recibiría los avisos.");
+      }
       if (p.clave === 'URL_APP_WEB' && esUrlDePruebas_(valor)) {
         reporte.ok = false;
         reporte.problemas.push("URL_APP_WEB apunta a la URL de pruebas ('/dev'). El QR no funcionaría.");
@@ -3052,6 +3084,13 @@ function configurarSistema() {
       reporte.ok = false;
       reporte.problemas.push("Falta configurar " + p.clave + " (" + p.nota + ").");
       lineas.push("   ✗ " + p.clave + " SIN configurar — " + p.nota);
+      if (p.clave === 'CORREO_BIBLIOTECA') {
+        // Vale la pena decir la consecuencia: es un fallo silencioso. Las
+        // solicitudes se guardan igual, así que nada se rompe a la vista;
+        // simplemente nadie se entera de que llegaron.
+        lineas.push("     Los avisos irían a 'biblioteca@example.org', que no existe:");
+        lineas.push("     las solicitudes SE GUARDAN, pero nadie se entera de que llegaron.");
+      }
     } else {
       lineas.push("   · " + p.clave + " sin configurar — " + p.nota);
       if (p.clave === 'URL_APP_WEB') {
